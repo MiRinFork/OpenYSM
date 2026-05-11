@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="images/brand.png" alt="logo" width="300"/>
+  <img src="images/banner2.png" alt="logo"/>
   <h1>OpenYSM</h1>
   <p>YSM开源替代品，基于2.6.5 forge</p>
 </div>
