@@ -3,6 +3,7 @@ package rip.ysm.compat.carryon.fabric;
 import com.elfmcys.yesstevemodel.client.animation.molang.CtrlBinding;
 import com.elfmcys.yesstevemodel.client.entity.CustomPlayerEntity;
 import com.elfmcys.yesstevemodel.geckolib3.core.controller.IAnimationController;
+import com.elfmcys.yesstevemodel.geckolib3.core.molang.util.StringPool;
 import net.minecraft.world.entity.player.Player;
 
 import java.util.Optional;
@@ -26,5 +27,7 @@ public final class CarryOnCompatImpl {
     }
 
     public static void registerBindings(CtrlBinding binding) {
+        binding.livingEntityVar("carryon_type", ctx -> StringPool.EMPTY);
+        binding.livingEntityVar("carryon_is_princess", ctx -> false);
     }
 }

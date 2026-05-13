@@ -30,6 +30,8 @@ public class GeneralConfig {
 
     public static ForgeConfigSpec.BooleanValue PARCOOL;
 
+    public static ForgeConfigSpec.BooleanValue USE_GPU_RENDERER;
+
     public static ForgeConfigSpec buildSpec() {
         ForgeConfigSpec.Builder builder = new ForgeConfigSpec.Builder();
         defineGeneral(builder);
@@ -58,6 +60,8 @@ public class GeneralConfig {
         DISABLE_EXTERNAL_FP_ANIM = builder.define("DisableExternalFirstPersonAnim", false);
         builder.comment("If rendering errors occur, try turning on this.");
         USE_COMPATIBILITY_RENDERER = builder.define("UseCompatibilityRenderer", false);
+        builder.comment("Test renderer.");
+        USE_GPU_RENDERER = builder.define("UseGpuRenderer", true);
         builder.comment("The amount of volume when the animation is played.");
         SOUND_VOLUME = builder.defineInRange("SoundVolume", 100.0d, 0.0d, 100.0d);
         builder.comment("Whether to display model ID first in the model selection screen, instead of the model name filled in by the model author.");

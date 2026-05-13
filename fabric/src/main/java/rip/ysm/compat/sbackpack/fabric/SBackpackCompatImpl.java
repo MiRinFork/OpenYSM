@@ -24,6 +24,7 @@ public final class SBackpackCompatImpl {
     }
 
     public static void registerControllerFunctions(CtrlBinding binding) {
+        binding.livingEntityVar("has_sophisticated_backpack", ctx -> false);
     }
 
     public static ItemStack getBackpackItem(LivingEntity livingEntity) {

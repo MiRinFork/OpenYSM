@@ -100,9 +100,7 @@ public class YSMClientMapper {
                 maxV = Math.max(maxV, face.v[i]);
             }
 
-            if (maxU - minU < 1e-5f || maxV - minV < 1e-5f) {
-                return STATE_INVISIBLE;
-            }
+
 
             boolean isAllZero = true;
             boolean hasTranslucent = false;
@@ -116,10 +114,18 @@ public class YSMClientMapper {
                 int imgW = img.getWidth();
                 int imgH = img.getHeight();
 
-                int startX = Math.max(0, (int) Math.floor(minU * imgW + 0.01f));
-                int endX = Math.min(imgW - 1, (int) Math.floor(maxU * imgW - 0.01f));
-                int startY = Math.max(0, (int) Math.floor(minV * imgH + 0.01f));
-                int endY = Math.min(imgH - 1, (int) Math.floor(maxV * imgH - 0.01f));
+                int startX = (int) Math.floor(minU * imgW + 0.01f);
+                int endX = (int) Math.floor(maxU * imgW - 0.01f);
+                if (endX < startX) endX = startX;
+
+                int startY = (int) Math.floor(minV * imgH + 0.01f);
+                int endY = (int) Math.floor(maxV * imgH - 0.01f);
+                if (endY < startY) endY = startY;
+
+                startX = Math.max(0, Math.min(startX, imgW - 1));
+                endX = Math.max(0, Math.min(endX, imgW - 1));
+                startY = Math.max(0, Math.min(startY, imgH - 1));
+                endY = Math.max(0, Math.min(endY, imgH - 1));
 
                 for (int x = startX; x <= endX; x++) {
                     for (int y = startY; y <= endY; y++) {

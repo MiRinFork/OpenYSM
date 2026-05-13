@@ -8,6 +8,7 @@ import com.elfmcys.yesstevemodel.resource.YSMBinarySerializer;
 import com.elfmcys.yesstevemodel.resource.YSMClientMapper;
 import com.elfmcys.yesstevemodel.resource.YSMFolderDeserializer;
 import com.elfmcys.yesstevemodel.resource.pojo.RawYsmModel;
+import com.google.common.util.concurrent.RateLimiter;
 import net.minecraft.network.chat.Component;
 import org.jetbrains.annotations.NotNull;
 import rip.ysm.legacy.YesModelUtils;
@@ -52,6 +53,7 @@ import java.nio.file.attribute.BasicFileAttributes;
 import java.security.SecureRandom;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 import java.util.regex.Pattern;
@@ -100,6 +102,33 @@ public final class ServerModelManager {
     private static final SecureRandom theRandom = new SecureRandom();
     public static byte[] serverKey;
     private static volatile boolean initialized = false;
+
+    private static RateLimiter BANDWIDTH_LIMITER = null;
+    private static Semaphore THREAD_LIMITER = null;
+    private static boolean limitsInitialized = false;
+
+    private static void ensureLimitsInitialized() {
+        if (!limitsInitialized) {
+            try {
+                int mbps = ServerConfig.BANDWIDTH_LIMIT.get();
+                double bytesPerSec = Math.max(1.0, mbps * 131072.0);
+                BANDWIDTH_LIMITER = RateLimiter.create(bytesPerSec);
+
+                int threads = ServerConfig.THREAD_COUNT.get();
+                if (threads <= 0) {
+                    threads = Math.max(2, Runtime.getRuntime().availableProcessors() - 1);
+                }
+                THREAD_LIMITER = new Semaphore(threads);
+
+                limitsInitialized = true;
+            } catch (Exception e) {
+                YesSteveModel.LOGGER.error("[YSM] Failed to initialize limits from config", e);
+                BANDWIDTH_LIMITER = RateLimiter.create(5 * 131072.0);
+                THREAD_LIMITER = new Semaphore(Math.max(2, Runtime.getRuntime().availableProcessors() - 1));
+                limitsInitialized = true;
+            }
+        }
+    }
 
     public static class ServerPackData {
         public String folderPath;
@@ -642,6 +671,7 @@ public final class ServerModelManager {
     }
 
     public static void nativeSyncModels(UUID[] uuids, String[] playerNames, String[] modelIds, Object callback) {
+        ensureLimitsInitialized();
         YSMThreadPool.submitSync(() -> {
             try {
                 MinecraftServer currentServer = GameInstance.getServer();
@@ -765,6 +795,8 @@ public final class ServerModelManager {
     private static void sendPacket05(UUID uuid, PlayerSyncState state, List<long[]> requestedHashes) {
         YSMThreadPool.submitSync(() -> {
             try {
+                THREAD_LIMITER.acquire();
+
                 PendingTransfer transfer = new PendingTransfer();
 
                 for (long[] hashes : requestedHashes) {
@@ -777,7 +809,10 @@ public final class ServerModelManager {
 
                     byte[] fileData = Files.readAllBytes(file);
                     int totalSize = fileData.length;
-                    int chunkSize = 32000;
+                    int maxChunkSize = 30720;
+                    int chunkCount = (totalSize + maxChunkSize - 1) / maxChunkSize;
+                    int chunkSize = (totalSize + chunkCount - 1) / chunkCount;
+
                     int offset = 0;
 
                     while (offset < totalSize) {
@@ -798,6 +833,9 @@ public final class ServerModelManager {
                             outBuf.getRawBuf().writeBytes(fileData, offset, length);
                             YsmCrypt.EncryptedPacket result = YsmCrypt.encrypt(outBuf.toArray(), state.key1, false);
 
+                                BANDWIDTH_LIMITER.acquire(result.data().length);
+
+
                             // Stream chunks
                             boolean success = sendModelData(uuid, ByteBuffer.wrap(result.data()), transfer);
                             if (success) {
@@ -810,6 +848,8 @@ public final class ServerModelManager {
                 }
             } catch (Exception e) {
                 YesSteveModel.LOGGER.error("Failed to send model chunks to " + uuid, e);
+            } finally {
+                THREAD_LIMITER.release();
             }
         });
     }

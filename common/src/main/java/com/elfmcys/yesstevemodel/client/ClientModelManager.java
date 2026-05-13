@@ -44,8 +44,8 @@ import java.net.URL;
 import java.nio.ByteBuffer;
 import java.nio.file.*;
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 
 @Environment(EnvType.CLIENT)
@@ -56,7 +56,18 @@ public class ClientModelManager {
     private static byte[] serverKey;
     private static byte[] clientKey;
     private static String currentCacheFolderName;
-    private static int pendingModelsCount;
+    private static final AtomicInteger pendingModelsCount = new AtomicInteger(0);
+
+    private static final ThreadPoolExecutor MODEL_PARSE_EXECUTOR = new ThreadPoolExecutor(
+            1, 1,
+            0L, TimeUnit.MILLISECONDS,
+            new LinkedBlockingQueue<>(),
+            r -> {
+                Thread t = new Thread(r, "YSM-Model-Parse-Thread");
+                t.setDaemon(true);
+                return t;
+            }
+    );
 
     private static final Map<UUID, ServerModelContext> serverModels = new ConcurrentHashMap<>();
 
@@ -263,9 +274,16 @@ public class ClientModelManager {
                     isModelReadyList.add(isAuth);
                 } else {
                     // 命中缓存
-                    byte[] fileBytes = Files.readAllBytes(cachedFile.toPath());
-                    byte[] decompressed = YsmCrypt.read(fileBytes, clientKey);
-                    parseAndLoadModel(decompressed, modelId, isAuth);
+                    MODEL_PARSE_EXECUTOR.submit(() -> {
+                        if (clientKey == null) return;
+                        try {
+                            byte[] fileBytes = Files.readAllBytes(cachedFile.toPath());
+                            byte[] decompressed = YsmCrypt.read(fileBytes, clientKey);
+                            parseAndLoadModel(decompressed, modelId, isAuth);
+                        } catch (Exception e) {
+                            YesSteveModel.LOGGER.error("[YSM] Failed to parse and load cached model: " + modelId, e);
+                        }
+                    });
                 }
             } else {
                 YesSteveModel.LOGGER.info("[YSM] Cache MISS or Invalid: " + ctx.uuid + " -> Requesting...");
@@ -347,7 +365,7 @@ public class ClientModelManager {
         }
 
         syncStep = 3;
-        pendingModelsCount = modelsToRequest.size();
+        pendingModelsCount.set(modelsToRequest.size());
 
         int garbageLen = 16 + SECURE_RANDOM.nextInt(48);
         byte[] garbage = new byte[garbageLen];
@@ -367,9 +385,11 @@ public class ClientModelManager {
             sendModelFile(ByteBuffer.wrap(result.data()));
         }
 
-        if (pendingModelsCount == 0) {
-            YesSteveModel.LOGGER.info("[YSM] All models loaded from local cache. Handshake complete!");
-            onSyncComplete();
+        if (pendingModelsCount.get() == 0) {
+            MODEL_PARSE_EXECUTOR.submit(() -> {
+                YesSteveModel.LOGGER.info("[YSM] All models loaded from local cache. Handshake complete!");
+                onSyncComplete();
+            });
         }
     }
 
@@ -403,30 +423,37 @@ public class ClientModelManager {
         ctx.bytesReceived += chunkLength;
 
         if (ctx.bytesReceived >= totalSize) {
-            String folder = currentCacheFolderName != null ? currentCacheFolderName : "default_cache";
-            File cacheDir = ServerModelManager.CACHE_CLIENT.resolve(folder).toFile();
-            if (!cacheDir.exists()) cacheDir.mkdirs();
+            byte[] fileBuffer = ctx.fileBuffer;
 
-            byte[] cachedFileData = YsmCrypt.transcodeServerDataToClientCache(ctx.fileBuffer, serverKey, clientKey, hash1, hash2);
+            MODEL_PARSE_EXECUTOR.submit(() -> {
+                if (clientKey == null) return;
+                try {
+                    String folder = currentCacheFolderName != null ? currentCacheFolderName : "default_cache";
+                    File cacheDir = ServerModelManager.CACHE_CLIENT.resolve(folder).toFile();
+                    if (!cacheDir.exists()) cacheDir.mkdirs();
 
-            String legitFileName = YSMClientCache.generateCacheFileName(hash1, hash2, clientKey);
-            File outFile = new File(cacheDir, legitFileName);
+                    byte[] cachedFileData = YsmCrypt.transcodeServerDataToClientCache(fileBuffer, serverKey, clientKey, hash1, hash2);
 
-            try (FileOutputStream fos = new FileOutputStream(outFile)) {
-                fos.write(cachedFileData);
-            }
-            ctx.fileBuffer = null;
+                    String legitFileName = YSMClientCache.generateCacheFileName(hash1, hash2, clientKey);
+                    File outFile = new File(cacheDir, legitFileName);
 
-            YesSteveModel.LOGGER.info("[YSM] Downloaded & Cached: " + outFile.getAbsolutePath());
-            byte[] decompressed = YsmCrypt.read(cachedFileData, clientKey);
+                    try (FileOutputStream fos = new FileOutputStream(outFile)) {
+                        fos.write(cachedFileData);
+                    }
 
-            parseAndLoadModel(decompressed, ctx.modelId, ctx.isAuth);
+                    YesSteveModel.LOGGER.info("[YSM] Downloaded & Cached: " + outFile.getAbsolutePath());
+                    byte[] decompressed = YsmCrypt.read(cachedFileData, clientKey);
 
-            pendingModelsCount--;
-            if (pendingModelsCount <= 0) {
-                YesSteveModel.LOGGER.info("[YSM] All missing models downloaded and loaded successfully!");
-                onSyncComplete();
-            }
+                    parseAndLoadModel(decompressed, ctx.modelId, ctx.isAuth);
+                } catch (Exception e) {
+                    YesSteveModel.LOGGER.error("[YSM] Failed to save/parse downloaded model: " + ctx.modelId, e);
+                } finally {
+                    if (pendingModelsCount.decrementAndGet() <= 0) {
+                        YesSteveModel.LOGGER.info("[YSM] All missing models downloaded and loaded successfully!");
+                        onSyncComplete();
+                    }
+                }
+            });
         }
     }
 
@@ -480,8 +507,11 @@ public class ClientModelManager {
         lastKey = null;
         serverKey = null;
         clientKey = null;
+
+        MODEL_PARSE_EXECUTOR.getQueue().clear();
+
         currentCacheFolderName = null;
-        pendingModelsCount = 0;
+        pendingModelsCount.set(0);
         cachedModelHashes.clear();
 
         serverModels.clear();

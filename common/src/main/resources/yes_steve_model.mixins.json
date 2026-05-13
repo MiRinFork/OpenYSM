@@ -10,7 +10,7 @@
   "client": [
     "client.ArrowEntityAccessor", "client.BufferSourceMixin", "client.EntityRenderDispatcherMixin",
     "client.FishingHookAccessor", "client.InventoryScreenMixin", "client.LivingEntityAccessor",
-    "client.LivingRendererMixin", "client.PauseScreenMixin", "client.ScreenAccessor",
+    "client.LivingRendererMixin", "client.PauseScreenMixin", "client.RenderSystemAccessor", "client.ScreenAccessor",
     "client.ThrowableItemProjectileAccessor", "client.WorldRendererMixin"
   ],
   "mixins": [

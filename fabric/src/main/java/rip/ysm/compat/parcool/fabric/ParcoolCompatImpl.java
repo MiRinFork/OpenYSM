@@ -3,6 +3,7 @@ package rip.ysm.compat.parcool.fabric;
 import com.elfmcys.yesstevemodel.client.animation.molang.CtrlBinding;
 import com.elfmcys.yesstevemodel.client.entity.CustomPlayerEntity;
 import com.elfmcys.yesstevemodel.geckolib3.core.controller.IAnimationController;
+import com.elfmcys.yesstevemodel.geckolib3.core.molang.util.StringPool;
 import net.minecraft.world.entity.player.Player;
 import org.apache.commons.lang3.tuple.Pair;
 
@@ -35,5 +36,6 @@ public final class ParcoolCompatImpl {
     }
 
     public static void registerBindings(CtrlBinding binding) {
+        binding.livingEntityVar("parcool_state", interfaceC0807x6b368640 -> StringPool.EMPTY);
     }
 }

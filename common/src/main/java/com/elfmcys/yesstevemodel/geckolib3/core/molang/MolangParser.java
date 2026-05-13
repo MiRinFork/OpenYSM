@@ -46,6 +46,7 @@ public class MolangParser {
     }
 
     private static String stripComments(String input) {
+        // 没有 / 直接返回
         if (input.indexOf('/') < 0) {
             return input;
         }

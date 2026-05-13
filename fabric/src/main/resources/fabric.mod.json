@@ -8,7 +8,7 @@
   "contact": {
     "homepage": ""  },
   "license": "MIT",
-  "icon": "assets/yes_steve_model/icon.png",
+  "icon": "yesstevemodel.png",
   "environment": "*",
   "entrypoints": {
     "main": [

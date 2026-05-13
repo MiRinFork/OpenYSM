@@ -1,6 +1,7 @@
 package rip.ysm.compat.curios.fabric;
 
 import com.elfmcys.yesstevemodel.geckolib3.core.molang.binding.ContextBinding;
+import com.elfmcys.yesstevemodel.molang.runtime.Function;
 import it.unimi.dsi.fastutil.objects.ReferenceOpenHashSet;
 import net.minecraft.tags.TagKey;
 import net.minecraft.world.entity.LivingEntity;
@@ -30,5 +31,12 @@ public final class CuriosCompatImpl {
     }
 
     public static void registerCuriosItems(ContextBinding binding) {
+        binding.function("has_any_curios", Function.NOOP);
+        binding.function("has_any_curios_with_all_tags", Function.NOOP);
+        binding.function("has_any_curios_with_any_tag", Function.NOOP);
+        binding.livingEntityVar("dump_curios", context -> {
+            context.logWarning("Curios not installed.");
+            return null;
+        });
     }
 }

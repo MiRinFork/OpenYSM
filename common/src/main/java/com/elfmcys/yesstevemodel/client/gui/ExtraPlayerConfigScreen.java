@@ -4,8 +4,8 @@ import com.elfmcys.yesstevemodel.client.gui.button.ConfigCheckBoxForge;
 import com.elfmcys.yesstevemodel.client.gui.button.FlatColorButton;
 import com.elfmcys.yesstevemodel.client.gui.button.LoadingStateButton;
 import com.elfmcys.yesstevemodel.client.gui.button.RangedSliderWidget;
-import com.elfmcys.yesstevemodel.config.GeneralConfig;
 import com.elfmcys.yesstevemodel.config.ExtraPlayerRenderConfig;
+import com.elfmcys.yesstevemodel.config.GeneralConfig;
 import com.elfmcys.yesstevemodel.config.LoadingStateConfig;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
@@ -46,6 +46,7 @@ public class ExtraPlayerConfigScreen extends Screen {
         addRenderableWidget(new ConfigCheckBoxForge(guiLeft + 5, guiTop + 221, "disable_loading_state_screen", LoadingStateConfig.DISABLE_LOADING_STATE_SCREEN));
         addRenderableWidget(new ConfigCheckBoxForge(guiLeft + 5, guiTop + 243, "use_compatibility_renderer", GeneralConfig.USE_COMPATIBILITY_RENDERER));
         addRenderableWidget(new LoadingStateButton(guiLeft + 5, guiTop + 264));
+        addRenderableWidget(new ConfigCheckBoxForge(guiLeft + 5, guiTop + 285, "use_gpu_renderer", GeneralConfig.USE_GPU_RENDERER));
     }
 
     public void render(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {

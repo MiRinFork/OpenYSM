@@ -45,6 +45,7 @@ import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.util.FormattedCharSequence;
 import org.apache.commons.lang3.StringUtils;
+import rip.ysm.gpu.GpuCapability;
 
 import java.util.*;
 
@@ -459,6 +460,9 @@ public class PlayerModelScreen extends Screen implements IGuiWidget {
         Objects.requireNonNull(this.font);
         guiGraphics.drawString(font, str, iWidth, pageY - (9 / 2), 15986656);
         String renderer = (NativeLibLoader.isLoaded() && !GeneralConfig.USE_COMPATIBILITY_RENDERER.get()) ? "SIMD" : "Fallback";
+        if(renderer.equals("SIMD") && GpuCapability.isAvailable() && GeneralConfig.USE_GPU_RENDERER.get()) {
+            renderer = "GPU";
+        }
         String strVersionString = Platform.getMod(YesSteveModel.MOD_ID).getVersion();
         guiGraphics.pose().pushPose();
         guiGraphics.pose().translate(0.0f, 0.0f, 1000.0f);

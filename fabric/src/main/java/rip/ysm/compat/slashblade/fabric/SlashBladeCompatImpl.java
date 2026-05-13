@@ -5,6 +5,7 @@ import com.elfmcys.yesstevemodel.client.entity.LivingAnimatable;
 import com.elfmcys.yesstevemodel.geckolib3.core.builder.ILoopType;
 import com.elfmcys.yesstevemodel.geckolib3.core.event.predicate.AnimationEvent;
 import com.elfmcys.yesstevemodel.geckolib3.core.enums.PlayState;
+import com.elfmcys.yesstevemodel.geckolib3.core.molang.util.StringPool;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.item.ItemStack;
 
@@ -30,6 +31,7 @@ public final class SlashBladeCompatImpl {
     }
 
     public static void registerControllerFunctions(CtrlBinding ctrlBinding) {
+        ctrlBinding.livingEntityVar("slashblade_animation", it -> StringPool.EMPTY);
     }
 
     public static boolean hasNewApi() {

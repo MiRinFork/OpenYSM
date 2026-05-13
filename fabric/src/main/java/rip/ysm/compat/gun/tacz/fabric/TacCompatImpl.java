@@ -5,6 +5,7 @@ import com.elfmcys.yesstevemodel.client.entity.LivingAnimatable;
 import com.elfmcys.yesstevemodel.geckolib3.core.builder.ILoopType;
 import com.elfmcys.yesstevemodel.geckolib3.core.event.predicate.AnimationEvent;
 import com.elfmcys.yesstevemodel.geckolib3.core.enums.PlayState;
+import com.elfmcys.yesstevemodel.geckolib3.core.molang.util.StringPool;
 import com.elfmcys.yesstevemodel.geckolib3.geo.animated.AnimatedGeoModel;
 import com.mojang.blaze3d.vertex.PoseStack;
 import net.minecraft.resources.ResourceLocation;
@@ -21,6 +22,15 @@ public final class TacCompatImpl {
     }
 
     public static void registerControllerFunctions(CtrlBinding binding) {
+        binding.livingEntityVar("tac_hold_gun", ctx -> false);
+        binding.livingEntityVar("tac_gun_type", ctx -> StringPool.EMPTY);
+        binding.livingEntityVar("tac_gun_id", ctx -> StringPool.EMPTY);
+        binding.livingEntityVar("tac_is_fire", ctx -> false);
+        binding.livingEntityVar("tac_is_aim", ctx -> false);
+        binding.livingEntityVar("tac_is_reload", ctx -> false);
+        binding.livingEntityVar("tac_is_melee", ctx -> false);
+        binding.livingEntityVar("tac_is_draw", ctx -> false);
+        binding.livingEntityVar("tac_fire_mode", ctx -> StringPool.EMPTY);
     }
 
     public static void applyItemTransform(ItemStack stack, AnimatedGeoModel model, LivingEntity entity, PoseStack poseStack, int packedLightIn, float partialTicks) {

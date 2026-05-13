@@ -11,6 +11,7 @@ import it.unimi.dsi.fastutil.objects.ObjectLists;
 import org.jetbrains.annotations.NotNull;
 import org.joml.Vector2f;
 import org.joml.Vector3f;
+import rip.ysm.gpu.GpuRenderPath;
 
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -116,6 +117,8 @@ public class GeoModel {
 
     public long nativeModelHandle = 0;
 
+    public long gpuMeshHandle = 0;
+
     public static native long nInitModelCache(ByteBuffer buffer);
 
     public static native void nDestroyModelCache(long handle);
@@ -125,6 +128,18 @@ public class GeoModel {
             float[] matrixTransfer, float[] animTransfer,
             int renderPartMask, int packedLight, int packedOverlay,
             float r, float g, float b, float a);
+
+    public static native long nBuildGpuMesh(ByteBuffer buffer, int[] outMeta);
+
+    public static native ByteBuffer nGetGpuMeshVertexBuffer(long pointer);
+
+    public static native ByteBuffer nGetGpuMeshIndexBuffer(long pointer);
+
+    public static native void nReleaseGpuMeshScratch(long pointer);
+
+    public static native void nFreeGpuMesh(long pointer);
+
+    public static native void nComputeBoneMatrices(long pointer, float[] rootPose, float[] rootNormal, float[] anim, int packedLight, ByteBuffer outBoneBuffer);
 
     public void buildNativeCache() {
         if (bakedBones == null || bakedBones.isEmpty()) return;
@@ -182,6 +197,9 @@ public class GeoModel {
         if (nativeModelHandle != 0) {
             nDestroyModelCache(nativeModelHandle);
             nativeModelHandle = 0;
+        }
+        if (gpuMeshHandle != 0) {
+            GpuRenderPath.disposeMesh(this);
         }
     }
 

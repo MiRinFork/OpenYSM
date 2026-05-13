@@ -46,17 +46,19 @@ public class VariableStorage implements IScopedVariableStorage, IForeignVariable
 
     // 注意this.publicMap线程安全
     public void initialize(@Nullable PooledStringHashSet publicVariableNames) {
-        if (publicVariableNames != null) {
-            PooledStringHashMap<VariableValueHolder> newPublicMap = new PooledStringHashMap<>();
+        this.scopedMap.clear();
+
+        if (publicVariableNames != null && !publicVariableNames.isEmpty()) {
+            PooledStringHashMap<VariableValueHolder> newPublicMap = new PooledStringHashMap<>(publicVariableNames.size());
             for (int publicVariableName : publicVariableNames) {
                 VariableValueHolder value = new VariableValueHolder();
-                scopedMap.put(publicVariableName, value);
+                this.scopedMap.put(publicVariableName, value);
                 newPublicMap.put(publicVariableName, value);
             }
             this.publicMap = newPublicMap;
-            return;
+        } else {
+            this.publicMap = new PooledStringHashMap<>(0);
         }
-        this.publicMap = new PooledStringHashMap<>(0);
     }
 
     public void forEachPropertyName(Consumer<String> consumer) {
