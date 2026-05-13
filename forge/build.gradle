@@ -67,8 +67,8 @@ dependencies {
     modCompileOnly ":simplehats-forge:1.20.1-0.4.0a"
     modCompileOnly ":accessories-neoforge:1.0.0-beta.48+1.20.1"
 
-    forgeRuntimeLibrary "com.github.OpenYSM:ImageStream:-SNAPSHOT"
-    include "com.github.OpenYSM:ImageStream:-SNAPSHOT"
+    forgeRuntimeLibrary "com.github.TartaricAlkaline:ImageStream:-SNAPSHOT"
+    include "com.github.TartaricAlkaline:ImageStream:-SNAPSHOT"
 
     compileOnly(annotationProcessor("io.github.llamalad7:mixinextras-common:0.3.6"))
     implementation(include("io.github.llamalad7:mixinextras-forge:0.3.6"))

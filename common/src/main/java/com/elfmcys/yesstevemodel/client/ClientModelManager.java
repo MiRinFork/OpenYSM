@@ -287,7 +287,9 @@ public class ClientModelManager {
                 int imageFormat = buf.readVarInt();
                 int unkImageData = buf.readVarInt();
 
-                iconTexture = new OuterFileTexture(textureData);
+                byte[] png = YSMClientMapper.toPng(textureData, imageFormat, textureWidth, textureHeight);
+
+                iconTexture = new OuterFileTexture(png);
             }
 
             String folderName = "";

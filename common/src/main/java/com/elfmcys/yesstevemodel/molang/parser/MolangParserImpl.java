@@ -66,28 +66,28 @@ public final class MolangParserImpl implements MolangParser {
                 return expression;
             case LBRACE:
                 lexer.next();
+                token = lexer.current();
                 List<Expression> expressions = new ArrayList<>();
-                while (true) {
+                while (token.kind() != TokenKind.RBRACE) {
                     expressions.add(parseCompoundExpression(lexer, 0));
-                    token = lexer.current();
-                    if (token.kind() == TokenKind.RBRACE) {
+                    Token current = lexer.current();
+                    if (current.kind() == TokenKind.RBRACE) {
                         lexer.next();
-                        break;
-                    } else if (token.kind() == TokenKind.EOF) {
-                        // end reached but not closed yet, huh?
-                        throw new ParseException(
-                                "Found the end before the execution scope closing token",
-                                lexer.cursor()
-                        );
-                    } else if (token.kind() == TokenKind.ERROR) {
-                        throw new ParseException("Found an invalid token (error): " + token.value(), lexer.cursor());
-                    } else {
-                        if (token.kind() != TokenKind.SEMICOLON) {
-                            throw new ParseException("Missing semicolon", lexer.cursor());
-                        }
-                        lexer.next();
+                        return new ExecutionScopeExpression(expressions);
                     }
+
+                    if (current.kind() == TokenKind.EOF) {
+                        throw new ParseException("Found the end before the execution scope closing token", lexer.cursor());
+                    }
+                    if (current.kind() == TokenKind.ERROR) {
+                        throw new ParseException("Found an invalid token (error): " + current.value(), lexer.cursor());
+                    }
+                    if (current.kind() != TokenKind.SEMICOLON) {
+                        throw new ParseException("Missing semicolon", lexer.cursor());
+                    }
+                    token = lexer.next();
                 }
+                lexer.next();
                 return new ExecutionScopeExpression(expressions);
             case BREAK:
                 lexer.next();

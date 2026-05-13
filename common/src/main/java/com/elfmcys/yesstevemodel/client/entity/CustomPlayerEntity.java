@@ -67,7 +67,7 @@ public abstract class CustomPlayerEntity extends LivingAnimatable<Player> implem
 
     @Override
     @Nullable
-    public Struct getPropertyContainer() {
+    public Struct getServerVarContainer() {
         return null;
     }
 
@@ -114,7 +114,7 @@ public abstract class CustomPlayerEntity extends LivingAnimatable<Player> implem
     @Override
     public void setupAnim(float seekTime, boolean isFirstPerson) {
         super.setupAnim(seekTime, isFirstPerson);
-        getEvaluationContext().setRoamingProperties(getPropertyContainer());
+        getEvaluationContext().setRoamingProperties(getServerVarContainer());
     }
 
     @Override

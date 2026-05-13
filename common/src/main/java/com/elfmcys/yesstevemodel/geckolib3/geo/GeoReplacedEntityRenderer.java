@@ -71,7 +71,8 @@ public abstract class GeoReplacedEntityRenderer<TEntity extends LivingEntity, T 
 
     @Override
     public void renderEarly(T animatable, PoseStack poseStack, float partialTick, MultiBufferSource bufferSource, VertexConsumer buffer, int packedLight, int packedOverlayIn, float red, float green, float blue, float alpha) {
-        this.renderEarlyMat = new Matrix4f(poseStack.last().pose());
+        // 使用 .set 来避免每次渲染创建新的 Matrix4f, 减少 allocation rate
+        this.renderEarlyMat.set(poseStack.last().pose());
         IGeoRenderer.super.renderEarly(animatable, poseStack, partialTick, bufferSource, buffer, packedLight, packedOverlayIn, red, green, blue, alpha);
     }
 
@@ -89,7 +90,8 @@ public abstract class GeoReplacedEntityRenderer<TEntity extends LivingEntity, T 
         Minecraft minecraft = Minecraft.getInstance();
         if (event != null && minecraft.player != null) {
             EntityModelData modelData = event.getModelData();
-            this.dispatchedMat = new Matrix4f(poseStack.last().pose());
+            // 使用 .set 来避免每次渲染创建新的 Matrix4f, 减少 allocation rate
+            this.dispatchedMat.set(poseStack.last().pose());
             setCurrentModelRenderCycle(EModelRenderCycle.INITIAL);
             poseStack.pushPose();
             if (entity.getPose() == Pose.SLEEPING && (bedOrientation = entity.getBedOrientation()) != null) {

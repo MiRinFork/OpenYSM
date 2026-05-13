@@ -28,8 +28,8 @@ import java.security.MessageDigest;
 import java.util.*;
 import java.util.stream.Stream;
 
+import static com.elfmcys.yesstevemodel.util.DigestUtil.md5Hex;
 import static com.elfmcys.yesstevemodel.util.DigestUtil.sha256Hex;
-import static org.apache.commons.codec.digest.DigestUtils.md5Hex;
 
 public class YSMFolderDeserializer implements AutoCloseable {
     private final Map<String, String> readFilesMd5Map = new TreeMap<>();
@@ -989,7 +989,7 @@ public class YSMFolderDeserializer implements AutoCloseable {
             case "swem" -> 8;
             case "slashblade" -> 9;
             case "tlm" -> 10;
-            case "fp_arm" -> 11;
+            case "fp.arm", "fp_arm" -> 11;
             case "immersive_melodies" -> 12;
             case "irons_spell_books" -> 13;
             default -> 0;

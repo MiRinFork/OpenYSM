@@ -4,7 +4,6 @@ import com.elfmcys.yesstevemodel.YesSteveModel;
 import com.elfmcys.yesstevemodel.client.animation.molang.struct.RoamingStruct;
 import com.elfmcys.yesstevemodel.capability.PlayerCapability;
 import com.elfmcys.yesstevemodel.client.entity.GeoEntity;
-import com.elfmcys.yesstevemodel.command.subcommands.client.CacheCommand;
 import com.elfmcys.yesstevemodel.geckolib3.core.controller.IAnimationController;
 import com.elfmcys.yesstevemodel.client.renderer.AnimationDebugOverlay;
 import com.elfmcys.yesstevemodel.command.subcommands.client.WatchCommand;
@@ -44,7 +43,7 @@ public class RootClientCommand {
                 HashSet<String> set = Sets.newHashSet();
                 geo.getEvaluationContext().forEachPropertyName(str -> set.add(String.format("v.%s", str)));
                 if (geo instanceof RoamingPropertyHolder) {
-                    Struct struct = ((RoamingPropertyHolder) geo).getPropertyContainer();
+                    Struct struct = ((RoamingPropertyHolder) geo).getServerVarContainer();
                     if (struct instanceof RoamingStruct roamingStruct) {
                         roamingStruct.forEachVar(str2 -> {
                             if (roamingStruct.getProperty(StringPool.getName(str2)) != null) {

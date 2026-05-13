@@ -1,5 +1,6 @@
 package com.elfmcys.yesstevemodel.geckolib3.core.keyframe;
 
+import com.elfmcys.yesstevemodel.geckolib3.core.controller.PredicateBasedController;
 import com.elfmcys.yesstevemodel.geckolib3.core.keyframe.bone.BoneKeyFrame;
 import com.elfmcys.yesstevemodel.geckolib3.core.snapshot.BoneSnapshot;
 import com.elfmcys.yesstevemodel.geckolib3.core.snapshot.BoneTopLevelSnapshot;
@@ -40,9 +41,12 @@ public class BoneAnimationQueue {
 
     public AnimationPoint scaleQueue;
 
+    public final PredicateBasedController.TransformProviderRecord transformProviderRecord;
+
     public BoneAnimationQueue(BoneTopLevelSnapshot snapshot) {
         this.topLevelSnapshot = snapshot;
         this.controllerSnapshot = new BoneSnapshot(snapshot.bone);
+        this.transformProviderRecord = new PredicateBasedController.TransformProviderRecord(this);
     }
 
     public void applyAnimation(BoneAnimation animation, boolean z) {

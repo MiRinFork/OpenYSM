@@ -43,4 +43,13 @@ public class TransitionVector3f extends Vector3f {
             MathUtil.nlerpEulerAngles(progress, this, targetEuler, offsetEuler, targetEuler);
         }
     }
+
+    public void applyRotationBlendTo(Vector3f targetEuler, Vector3f offsetEuler, EulerNlerpScratch scratch) {
+        float progress = this.percentCompleted;
+        if (progress == 0.0f) {
+            targetEuler.set(this);
+        } else {
+            MathUtil.nlerpEulerAngles(progress, this, targetEuler, offsetEuler, targetEuler, scratch);
+        }
+    }
 }

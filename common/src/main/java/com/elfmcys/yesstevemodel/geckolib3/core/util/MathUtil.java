@@ -24,11 +24,19 @@ public class MathUtil {
     }
 
     public static void nlerpEulerAngles(float percentCompleted, Vector3f startEuler, Vector3f endEuler, Vector3f offsetEuler, Vector3f outEuler) {
-        Vector3f tempEuler = new Vector3f(startEuler).add(offsetEuler);
-        Quaternionf startQuat = eulerZYXToQuaternion(tempEuler);
+        nlerpEulerAngles(percentCompleted, startEuler, endEuler, offsetEuler, outEuler, new EulerNlerpScratch());
+    }
+
+    public static void nlerpEulerAngles(float percentCompleted, Vector3f startEuler, Vector3f endEuler, Vector3f offsetEuler, Vector3f outEuler, EulerNlerpScratch scratch) {
+        Vector3f tempEuler = scratch.vec;
+        Quaternionf startQuat = scratch.qa;
+        Quaternionf endQuat = scratch.qb;
+
+        startEuler.add(offsetEuler, tempEuler);
+        startQuat.identity().rotateZYX(tempEuler.z, tempEuler.y, tempEuler.x);
 
         endEuler.add(offsetEuler, tempEuler);
-        Quaternionf endQuat = eulerZYXToQuaternion(tempEuler);
+        endQuat.identity().rotateZYX(tempEuler.z, tempEuler.y, tempEuler.x);
 
         startQuat.nlerp(endQuat, percentCompleted, endQuat);
 

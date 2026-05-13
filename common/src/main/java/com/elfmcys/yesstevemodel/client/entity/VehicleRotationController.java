@@ -15,7 +15,6 @@ import org.jetbrains.annotations.Nullable;
 import org.joml.Vector3f;
 
 import java.util.List;
-import java.util.Optional;
 import java.util.function.Consumer;
 
 public class VehicleRotationController implements IAnimationController<GeckoVehicleEntity> {
@@ -88,18 +87,18 @@ public class VehicleRotationController implements IAnimationController<GeckoVehi
         }
 
         @Override
-        public Optional<TransitionVector3f> getRotation(ExpressionEvaluator<AnimationContext<?>> evaluator) {
-            return Optional.ofNullable(VehicleRotationController.this.vehicleRotation);
+        public TransitionVector3f getRotation(ExpressionEvaluator<AnimationContext<?>> evaluator) {
+            return VehicleRotationController.this.vehicleRotation;
         }
 
         @Override
-        public Optional<TransitionVector3f> getPosition(ExpressionEvaluator<AnimationContext<?>> evaluator) {
-            return Optional.empty();
+        public TransitionVector3f getPosition(ExpressionEvaluator<AnimationContext<?>> evaluator) {
+            return null;
         }
 
         @Override
-        public Optional<TransitionVector3f> getScale(ExpressionEvaluator<AnimationContext<?>> evaluator) {
-            return Optional.empty();
+        public TransitionVector3f getScale(ExpressionEvaluator<AnimationContext<?>> evaluator) {
+            return null;
         }
     }
 }

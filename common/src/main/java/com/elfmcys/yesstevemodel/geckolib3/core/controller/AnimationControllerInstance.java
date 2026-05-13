@@ -1,5 +1,6 @@
 package com.elfmcys.yesstevemodel.geckolib3.core.controller;
 
+import com.elfmcys.yesstevemodel.client.entity.PlayerGeoEntity;
 import com.elfmcys.yesstevemodel.geckolib3.core.keyframe.*;
 import com.elfmcys.yesstevemodel.geckolib3.core.event.SoundKeyFrameExecutor;
 import com.elfmcys.yesstevemodel.geckolib3.core.event.InstructionKeyFrameExecutor;

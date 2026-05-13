@@ -46,12 +46,17 @@ public class MolangParser {
     }
 
     private static String stripComments(String input) {
-        StringBuilder resultBuilder = new StringBuilder(input.length());
+        if (input.indexOf('/') < 0) {
+            return input;
+        }
+
+        final int len = input.length();
+        StringBuilder resultBuilder = new StringBuilder(len);
         boolean inBlockComment = false;
         boolean inLineComment = false;
         boolean inStringLiteral = false;
 
-        for (int i = 0; i < input.length(); i++) {
+        for (int i = 0; i < len; i++) {
             char currentChar = input.charAt(i);
 
             if (inStringLiteral) {
@@ -67,7 +72,7 @@ public class MolangParser {
                 }
 
             } else if (inBlockComment) {
-                if (currentChar == '*' && i + 1 < input.length()) {
+                if (currentChar == '*' && i + 1 < len) {
                     char nextChar = input.charAt(i + 1);
                     if (nextChar == '/') {
                         inBlockComment = false;
@@ -80,7 +85,7 @@ public class MolangParser {
                 resultBuilder.append('\'');
 
             } else {
-                if (currentChar == '/' && i + 1 < input.length()) {
+                if (currentChar == '/' && i + 1 < len) {
                     char nextChar = input.charAt(i + 1);
 
                     if (nextChar == '/') {

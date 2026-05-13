@@ -11,13 +11,19 @@ public final class FloatExpression implements Expression {
     public static final FloatExpression ONE = new FloatExpression(1.0f);
 
     private final float value;
+    private final Float boxed;
 
     public FloatExpression(float value) {
         this.value = value;
+        this.boxed = value;
     }
 
     public float value() {
         return this.value;
+    }
+
+    public Float boxed() {
+        return this.boxed;
     }
 
     @Override

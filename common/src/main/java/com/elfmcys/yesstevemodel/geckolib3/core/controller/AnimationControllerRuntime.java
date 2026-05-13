@@ -10,6 +10,7 @@ import com.elfmcys.yesstevemodel.geckolib3.core.keyframe.AnimationPoint;
 import com.elfmcys.yesstevemodel.geckolib3.core.keyframe.BoneAnimationQueue;
 import com.elfmcys.yesstevemodel.geckolib3.core.molang.value.IValue;
 import com.elfmcys.yesstevemodel.geckolib3.core.snapshot.BoneTopLevelSnapshot;
+import com.elfmcys.yesstevemodel.geckolib3.core.util.EulerNlerpScratch;
 import com.elfmcys.yesstevemodel.geckolib3.core.util.MathUtil;
 import com.elfmcys.yesstevemodel.geckolib3.core.keyframe.ConstantPoint;
 import com.elfmcys.yesstevemodel.geckolib3.core.molang.context.AnimationContext;
@@ -29,7 +30,6 @@ import org.jetbrains.annotations.Nullable;
 import org.joml.Vector3f;
 
 import java.util.List;
-import java.util.Optional;
 import java.util.function.Consumer;
 
 public class AnimationControllerRuntime<T extends AnimatableEntity<?>> implements IAnimationController<T> {
@@ -307,7 +307,10 @@ public class AnimationControllerRuntime<T extends AnimatableEntity<?>> implement
                 this.childController.forEachTransform(consumer);
                 return;
             }
-            for (BoneBlendState blendState : this.activeBoneTransforms) {
+            final ReferenceArrayList<BoneBlendState> list = this.activeBoneTransforms;
+            final int size = list.size();
+            for (int i = 0; i < size; i++) {
+                BoneBlendState blendState = list.get(i);
                 if (blendState.hasActiveSources()) {
                     consumer.accept(blendState);
                 }
@@ -399,6 +402,14 @@ public class AnimationControllerRuntime<T extends AnimatableEntity<?>> implement
 
         private boolean isMarked;
 
+        // 复用这几个向量以避免每帧给每根骨头新建 3 个 TransitionVector3f
+        // gc 在天上失望的看着你。。。
+        private final TransitionVector3f rotationOut = new TransitionVector3f();
+        private final TransitionVector3f positionOut = new TransitionVector3f();
+        private final TransitionVector3f scaleOut = new TransitionVector3f(1.0f, 1.0f, 1.0f);
+        private final Vector3f scaleLerpTmp = new Vector3f();
+        private final EulerNlerpScratch rotScratch = new EulerNlerpScratch();
+
         public BoneBlendState(BoneTopLevelSnapshot snapshot) {
             this.boneTarget = snapshot;
         }
@@ -412,11 +423,9 @@ public class AnimationControllerRuntime<T extends AnimatableEntity<?>> implement
         }
 
         public boolean hasActiveSources() {
-            if (this.blendSources.isEmpty()) {
-                return false;
-            }
-            for (it.unimi.dsi.fastutil.Pair<ConditionalEvaluator, BoneAnimationQueue> blendSource : this.blendSources) {
-                if (((ConditionalEvaluator) ((it.unimi.dsi.fastutil.Pair<?, ?>) blendSource).left()).isActive()) {
+            final int size = this.blendSources.size();
+            for (int i = 0; i < size; i++) {
+                if (this.blendSources.get(i).left().isActive()) {
                     return true;
                 }
             }
@@ -442,16 +451,22 @@ public class AnimationControllerRuntime<T extends AnimatableEntity<?>> implement
         }
 
         @Override
-        public Optional<TransitionVector3f> getRotation(ExpressionEvaluator<AnimationContext<?>> evaluator) {
+        public TransitionVector3f getRotation(ExpressionEvaluator<AnimationContext<?>> evaluator) {
+            final ReferenceArrayList<it.unimi.dsi.fastutil.Pair<ConditionalEvaluator, BoneAnimationQueue>> sources = this.blendSources;
+            final int size = sources.size();
+            if (size == 0) return null;
             AnimationPoint animationPoint;
-            TransitionVector3f transitionVector3f = new TransitionVector3f();
+            TransitionVector3f transitionVector3f = this.rotationOut;
+            transitionVector3f.set(0.0f, 0.0f, 0.0f);
+            transitionVector3f.percentCompleted = 1.0f;
             boolean hasData = false;
             boolean isFirst = true;
             boolean isTransition = false;
             Vector3f offsetPoint = null;
             Vector3f initialRotaiton = null;
             float lerpFactor = 0.0f;
-            for (it.unimi.dsi.fastutil.Pair<ConditionalEvaluator, BoneAnimationQueue> pair : this.blendSources) {
+            for (int i = 0; i < size; i++) {
+                it.unimi.dsi.fastutil.Pair<ConditionalEvaluator, BoneAnimationQueue> pair = sources.get(i);
                 if (pair.left().isActive()) {
                     BoneAnimationQueue boneQueue = pair.right();
                     if (boneQueue.isActive() && (animationPoint = boneQueue.rotationQueue) != null) {
@@ -468,7 +483,7 @@ public class AnimationControllerRuntime<T extends AnimatableEntity<?>> implement
                         }
                         if (!isTransition) {
                             Vector3f lerpPoint = animationPoint.getLerpPoint(evaluator);
-                            float blendWeight = pair.right().getBlendWeight();
+                            float blendWeight = boneQueue.getBlendWeight();
                             if (animationPoint instanceof ConstantPoint) {
                                 float percentCompleted = animationPoint.getPercentCompleted();
                                 blendWeight *= 1.0f - percentCompleted;
@@ -478,33 +493,39 @@ public class AnimationControllerRuntime<T extends AnimatableEntity<?>> implement
                             }
                             transitionVector3f.fma(blendWeight, lerpPoint);
                         } else if (lerpFactor <= -1.0E-5f || lerpFactor >= 1.0E-5f) {
-                            transitionVector3f.fma(pair.right().getBlendWeight(), ((TransitionPoint) animationPoint).evaluateRaw(evaluator));
+                            transitionVector3f.fma(boneQueue.getBlendWeight(), ((TransitionPoint) animationPoint).evaluateRaw(evaluator));
                         } else {
                             transitionVector3f.set(offsetPoint);
-                            return Optional.of(transitionVector3f);
+                            return transitionVector3f;
                         }
                     }
                 }
             }
             if (hasData) {
                 if (isTransition) {
-                    MathUtil.nlerpEulerAngles(lerpFactor, offsetPoint, transitionVector3f, initialRotaiton, transitionVector3f);
+                    MathUtil.nlerpEulerAngles(lerpFactor, offsetPoint, transitionVector3f, initialRotaiton, transitionVector3f, this.rotScratch);
                 }
-                return Optional.of(transitionVector3f);
+                return transitionVector3f;
             }
-            return Optional.empty();
+            return null;
         }
 
         @Override
-        public Optional<TransitionVector3f> getPosition(ExpressionEvaluator<AnimationContext<?>> evaluator) {
+        public TransitionVector3f getPosition(ExpressionEvaluator<AnimationContext<?>> evaluator) {
+            final ReferenceArrayList<it.unimi.dsi.fastutil.Pair<ConditionalEvaluator, BoneAnimationQueue>> sources = this.blendSources;
+            final int size = sources.size();
+            if (size == 0) return null;
             AnimationPoint point;
-            TransitionVector3f result = new TransitionVector3f();
+            TransitionVector3f result = this.positionOut;
+            result.set(0.0f, 0.0f, 0.0f);
+            result.percentCompleted = 1.0f;
             boolean hasData = false;
             boolean isFirst = true;
             boolean isTransition = false;
             Vector3f offsetPoint = null;
             float lerpFactor = 0.0f;
-            for (it.unimi.dsi.fastutil.Pair<ConditionalEvaluator, BoneAnimationQueue> pair : this.blendSources) {
+            for (int i = 0; i < size; i++) {
+                it.unimi.dsi.fastutil.Pair<ConditionalEvaluator, BoneAnimationQueue> pair = sources.get(i);
                 if (pair.left().isActive()) {
                     BoneAnimationQueue boneQueue = pair.right();
                     if (boneQueue.isActive() && (point = boneQueue.positionQueue) != null) {
@@ -520,7 +541,7 @@ public class AnimationControllerRuntime<T extends AnimatableEntity<?>> implement
                         }
                         if (!isTransition) {
                             Vector3f lerpPoint = point.getLerpPoint(evaluator);
-                            float blendWeight = pair.right().getBlendWeight();
+                            float blendWeight = boneQueue.getBlendWeight();
                             if (point instanceof ConstantPoint) {
                                 float percentCompleted = point.getPercentCompleted();
                                 blendWeight *= 1.0f - percentCompleted;
@@ -530,10 +551,10 @@ public class AnimationControllerRuntime<T extends AnimatableEntity<?>> implement
                             }
                             result.fma(blendWeight, lerpPoint);
                         } else if (lerpFactor <= -1.0E-5f || lerpFactor >= 1.0E-5f) {
-                            result.fma(pair.right().getBlendWeight(), ((TransitionPoint) point).evaluateRaw(evaluator));
+                            result.fma(boneQueue.getBlendWeight(), ((TransitionPoint) point).evaluateRaw(evaluator));
                         } else {
                             result.set(offsetPoint);
-                            return Optional.of(result);
+                            return result;
                         }
                     }
                 }
@@ -542,21 +563,28 @@ public class AnimationControllerRuntime<T extends AnimatableEntity<?>> implement
                 if (isTransition) {
                     MathUtil.lerpValues(lerpFactor, offsetPoint, result, result);
                 }
-                return Optional.of(result);
+                return result;
             }
-            return Optional.empty();
+            return null;
         }
 
         @Override
-        public Optional<TransitionVector3f> getScale(ExpressionEvaluator<AnimationContext<?>> evaluator) {
+        public TransitionVector3f getScale(ExpressionEvaluator<AnimationContext<?>> evaluator) {
+            final ReferenceArrayList<it.unimi.dsi.fastutil.Pair<ConditionalEvaluator, BoneAnimationQueue>> sources = this.blendSources;
+            final int size = sources.size();
+            if (size == 0) return null;
             AnimationPoint point;
-            TransitionVector3f result = new TransitionVector3f(1.0f, 1.0f, 1.0f);
+            TransitionVector3f result = this.scaleOut;
+            result.set(1.0f, 1.0f, 1.0f);
+            result.percentCompleted = 1.0f;
+            final Vector3f tmp = this.scaleLerpTmp;
             boolean hasData = false;
             boolean isFirst = true;
             boolean isTransition = false;
             Vector3f offsetPoint = null;
             float lerpFactor = 0.0f;
-            for (it.unimi.dsi.fastutil.Pair<ConditionalEvaluator, BoneAnimationQueue> pair : this.blendSources) {
+            for (int i = 0; i < size; i++) {
+                it.unimi.dsi.fastutil.Pair<ConditionalEvaluator, BoneAnimationQueue> pair = sources.get(i);
                 if (pair.left().isActive()) {
                     BoneAnimationQueue boneQueue = pair.right();
                     if (boneQueue.isActive() && (point = boneQueue.scaleQueue) != null) {
@@ -572,7 +600,7 @@ public class AnimationControllerRuntime<T extends AnimatableEntity<?>> implement
                         }
                         if (!isTransition) {
                             Vector3f lerpPoint = point.getLerpPoint(evaluator);
-                            float blendWeight = pair.right().getBlendWeight();
+                            float blendWeight = boneQueue.getBlendWeight();
                             if (point instanceof ConstantPoint) {
                                 float percentCompleted = point.getPercentCompleted();
                                 blendWeight *= 1.0f - percentCompleted;
@@ -583,13 +611,15 @@ public class AnimationControllerRuntime<T extends AnimatableEntity<?>> implement
                             if (blendWeight == 1.0f) {
                                 result.mul(lerpPoint);
                             } else {
-                                result.mul(MathUtil.lerpAngles(lerpPoint, blendWeight));
+                                MathUtil.lerpAnglesInPlace(lerpPoint, blendWeight, tmp);
+                                result.mul(tmp);
                             }
                         } else if (lerpFactor <= -1.0E-5f || lerpFactor >= 1.0E-5f) {
-                            result.mul(MathUtil.lerpAngles(((TransitionPoint) point).evaluateRaw(evaluator), pair.right().getBlendWeight()));
+                            MathUtil.lerpAnglesInPlace(((TransitionPoint) point).evaluateRaw(evaluator), boneQueue.getBlendWeight(), tmp);
+                            result.mul(tmp);
                         } else {
                             result.set(offsetPoint);
-                            return Optional.of(result);
+                            return result;
                         }
                     }
                 }
@@ -598,9 +628,9 @@ public class AnimationControllerRuntime<T extends AnimatableEntity<?>> implement
                 if (isTransition) {
                     MathUtil.lerpValues(lerpFactor, offsetPoint, result, result);
                 }
-                return Optional.of(result);
+                return result;
             }
-            return Optional.empty();
+            return null;
         }
     }
 }

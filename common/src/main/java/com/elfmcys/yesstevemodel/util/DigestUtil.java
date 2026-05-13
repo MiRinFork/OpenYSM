@@ -2,6 +2,7 @@ package com.elfmcys.yesstevemodel.util;
 
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.HexFormat;
 
 public class DigestUtil {
     public static byte[] md5(byte[] input) {
@@ -13,18 +14,20 @@ public class DigestUtil {
         }
     }
 
-    public static String sha256Hex(byte[] input) {
+    public static byte[] sha256(byte[] input) {
         try {
             MessageDigest md = MessageDigest.getInstance("SHA-256");
-            byte[] digest = md.digest(input);
-            StringBuilder sb = new StringBuilder(digest.length * 2);
-            for (byte b : digest) {
-                sb.append(Character.forDigit((b >> 4) & 0xF, 16));
-                sb.append(Character.forDigit(b & 0xF, 16));
-            }
-            return sb.toString();
-        } catch (NoSuchAlgorithmException e) {
+            return md.digest(input);
+        }  catch (NoSuchAlgorithmException e) {
             throw new RuntimeException("SHA-256 algorithm not available", e);
         }
+    }
+
+    public static String md5Hex(byte[] input) {
+        return HexFormat.of().formatHex(md5(input));
+    }
+
+    public static String sha256Hex(byte[] input) {
+        return HexFormat.of().formatHex(sha256(input));
     }
 }

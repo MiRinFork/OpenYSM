@@ -9,28 +9,61 @@ import java.util.Iterator;
 import java.util.List;
 
 public final class ExpressionEvaluatorImpl<TEntity> implements ExpressionEvaluator<TEntity>, ExpressionVisitor<Object> {
+
+    private static final Double DOUBLE_ZERO = 0.0d;
+    private static final Float FLOAT_ZERO = 0.0f;
+
     private static final Evaluator[] BINARY_EVALUATORS = {
-            bool((a, b) -> a.eval() && b.eval()),
-            bool((a, b) -> a.eval() || b.eval()),
-            compare((a, b) -> a.eval() < b.eval()),
-            compare((a, b) -> a.eval() <= b.eval()),
-            compare((a, b) -> a.eval() > b.eval()),
-            compare((a, b) -> a.eval() >= b.eval()),
+            (evaluator, a, b) -> {
+                if (!ValueConversions.asBoolean(a.visit(evaluator))) return Boolean.FALSE;
+                return ValueConversions.asBoolean(b.visit(evaluator)) ? Boolean.TRUE : Boolean.FALSE;
+            },
+            (evaluator, a, b) -> {
+                if (ValueConversions.asBoolean(a.visit(evaluator))) return Boolean.TRUE;
+                return ValueConversions.asBoolean(b.visit(evaluator)) ? Boolean.TRUE : Boolean.FALSE;
+            },
+            (evaluator, a, b) -> {
+                float av = ValueConversions.asFloat(a.visit(evaluator));
+                float bv = ValueConversions.asFloat(b.visit(evaluator));
+                return av < bv ? Boolean.TRUE : Boolean.FALSE;
+            },
+            (evaluator, a, b) -> {
+                float av = ValueConversions.asFloat(a.visit(evaluator));
+                float bv = ValueConversions.asFloat(b.visit(evaluator));
+                return av <= bv ? Boolean.TRUE : Boolean.FALSE;
+            },
+            (evaluator, a, b) -> {
+                float av = ValueConversions.asFloat(a.visit(evaluator));
+                float bv = ValueConversions.asFloat(b.visit(evaluator));
+                return av > bv ? Boolean.TRUE : Boolean.FALSE;
+            },
+            (evaluator, a, b) -> {
+                float av = ValueConversions.asFloat(a.visit(evaluator));
+                float bv = ValueConversions.asFloat(b.visit(evaluator));
+                return av >= bv ? Boolean.TRUE : Boolean.FALSE;
+            },
             (evaluator, a, b) -> {
                 final Object aVal = a.visit(evaluator);
                 final Object bVal = b.visit(evaluator);
                 return ValueConversions.asFloat(aVal) + ValueConversions.asFloat(bVal);
             },
-            arithmetic((a, b) -> a.eval() - b.eval()),
-            arithmetic((a, b) -> a.eval() * b.eval()),
-            arithmetic((a, b) -> {
-                // Molang allows division by zero,
-                // which is always equal to 0
-                float dividend = a.eval();
-                float divisor = b.eval();
-                if (divisor == 0) return 0;
-                else return dividend / divisor;
-            }),
+            (evaluator, a, b) -> {
+                float av = ValueConversions.asFloat(a.visit(evaluator));
+                float bv = ValueConversions.asFloat(b.visit(evaluator));
+                return av - bv;
+            },
+            (evaluator, a, b) -> {
+                float av = ValueConversions.asFloat(a.visit(evaluator));
+                float bv = ValueConversions.asFloat(b.visit(evaluator));
+                return av * bv;
+            },
+            // molang 里除零结果为 0
+            (evaluator, a, b) -> {
+                float dividend = ValueConversions.asFloat(a.visit(evaluator));
+                float divisor = ValueConversions.asFloat(b.visit(evaluator));
+                if (divisor == 0.0f) return FLOAT_ZERO;
+                return dividend / divisor;
+            },
             (evaluator, a, b) -> { // arrow
                 Object val = a.visit(evaluator);
                 if (val == null) {
@@ -128,27 +161,6 @@ public final class ExpressionEvaluatorImpl<TEntity> implements ExpressionEvaluat
         this.entity = tentity;
     }
 
-    private static Evaluator bool(BooleanOperator op) {
-        return (evaluator, a, b) -> op.operate(
-                () -> ValueConversions.asBoolean(a.visit(evaluator)),
-                () -> ValueConversions.asBoolean(b.visit(evaluator))
-        );
-    }
-
-    private static Evaluator compare(Comparator comp) {
-        return (evaluator, a, b) -> comp.compare(
-                () -> ValueConversions.asFloat(a.visit(evaluator)),
-                () -> ValueConversions.asFloat(b.visit(evaluator))
-        );
-    }
-
-    private static Evaluator arithmetic(ArithmeticOperator op) {
-        return (evaluator, a, b) -> op.operate(
-                () -> ValueConversions.asFloat(a.visit(evaluator)),
-                () -> ValueConversions.asFloat(b.visit(evaluator))
-        );
-    }
-
     @Override
     public TEntity entity() {
         return this.entity;
@@ -166,23 +178,136 @@ public final class ExpressionEvaluatorImpl<TEntity> implements ExpressionEvaluat
     }
 
     @Override
+    public float evalAsFloat(@NotNull Expression expression) {
+        try {
+            return evalFloat(expression);
+        } finally {
+            this.returnValue = null;
+            this.op = null;
+        }
+    }
+
+    @Override
+    public boolean evalAsBoolean(@NotNull Expression expression) {
+        try {
+            return evalBool(expression);
+        } finally {
+            this.returnValue = null;
+            this.op = null;
+        }
+    }
+
+    // 算术子树原生递归，跳过中间 Float 装箱；遇到不能在 primitive 域处理的节点回退到 visit
+    private float evalFloat(@NotNull Expression expr) {
+        if (expr instanceof FloatExpression fe) {
+            return fe.value();
+        }
+        if (expr instanceof BinaryExpression be) {
+            switch (be.op()) {
+                case ADD: return evalFloat(be.left()) + evalFloat(be.right());
+                case SUB: return evalFloat(be.left()) - evalFloat(be.right());
+                case MUL: return evalFloat(be.left()) * evalFloat(be.right());
+                case DIV: {
+                    float d = evalFloat(be.right());
+                    if (d == 0.0f) return 0.0f;
+                    return evalFloat(be.left()) / d;
+                }
+                case LT:  return evalFloat(be.left()) <  evalFloat(be.right()) ? 1.0f : 0.0f;
+                case LTE: return evalFloat(be.left()) <= evalFloat(be.right()) ? 1.0f : 0.0f;
+                case GT:  return evalFloat(be.left()) >  evalFloat(be.right()) ? 1.0f : 0.0f;
+                case GTE: return evalFloat(be.left()) >= evalFloat(be.right()) ? 1.0f : 0.0f;
+                case AND: return (evalBool(be.left()) && evalBool(be.right())) ? 1.0f : 0.0f;
+                case OR:  return (evalBool(be.left()) || evalBool(be.right())) ? 1.0f : 0.0f;
+                default: break;
+            }
+        }
+        if (expr instanceof UnaryExpression ue) {
+            switch (ue.op()) {
+                case ARITHMETICAL_NEGATION: return -evalFloat(ue.expression());
+                case PLUS: return evalFloat(ue.expression());
+                case LOGICAL_NEGATION: return evalBool(ue.expression()) ? 0.0f : 1.0f;
+                case RETURN: return evalFloat(ue.expression());
+                default: break;
+            }
+        }
+        if (expr instanceof TernaryConditionalExpression te) {
+            return evalBool(te.condition())
+                    ? evalFloat(te.trueExpression())
+                    : evalFloat(te.falseExpression());
+        }
+        return ValueConversions.asFloat(expr.visit(this));
+    }
+
+    private boolean evalBool(@NotNull Expression expr) {
+        if (expr instanceof FloatExpression fe) {
+            return fe.value() != 0.0f;
+        }
+        if (expr instanceof BinaryExpression be) {
+            switch (be.op()) {
+                case AND: return evalBool(be.left()) && evalBool(be.right());
+                case OR:  return evalBool(be.left()) || evalBool(be.right());
+                case LT:  return evalFloat(be.left()) <  evalFloat(be.right());
+                case LTE: return evalFloat(be.left()) <= evalFloat(be.right());
+                case GT:  return evalFloat(be.left()) >  evalFloat(be.right());
+                case GTE: return evalFloat(be.left()) >= evalFloat(be.right());
+                case ADD: return (evalFloat(be.left()) + evalFloat(be.right())) != 0.0f;
+                case SUB: return (evalFloat(be.left()) - evalFloat(be.right())) != 0.0f;
+                case MUL: {
+                    float l = evalFloat(be.left());
+                    if (l == 0.0f) return false;
+                    return evalFloat(be.right()) != 0.0f;
+                }
+                case DIV: {
+                    float r = evalFloat(be.right());
+                    if (r == 0.0f) return false;
+                    return (evalFloat(be.left()) / r) != 0.0f;
+                }
+                default: break;
+            }
+        }
+        if (expr instanceof UnaryExpression ue) {
+            switch (ue.op()) {
+                case LOGICAL_NEGATION: return !evalBool(ue.expression());
+                case ARITHMETICAL_NEGATION: return evalBool(ue.expression());
+                case PLUS: return evalBool(ue.expression());
+                case RETURN: return evalBool(ue.expression());
+                default: break;
+            }
+        }
+        if (expr instanceof TernaryConditionalExpression te) {
+            return evalBool(te.condition())
+                    ? evalBool(te.trueExpression())
+                    : evalBool(te.falseExpression());
+        }
+        return ValueConversions.asBoolean(expr.visit(this));
+    }
+
+    @Override
     @Nullable
     public Object evalAll(@NotNull Iterable<Expression> iterable, boolean z) {
         if (z) {
             this.working++;
         }
-        Object objValueOf = 0.0d;
+        Object objValueOf = DOUBLE_ZERO;
         try {
-            Iterator<Expression> it = iterable.iterator();
-            while (true) {
-                if (!it.hasNext()) {
-                    break;
+            if (iterable instanceof List<Expression> list) {
+                final int size = list.size();
+                for (int i = 0; i < size; i++) {
+                    objValueOf = list.get(i).visit(this);
+                    Object obj = popReturnValue();
+                    if (obj != null) {
+                        objValueOf = obj;
+                        break;
+                    }
                 }
-                objValueOf = it.next().visit(this);
-                Object obj = popReturnValue();
-                if (obj != null) {
-                    objValueOf = obj;
-                    break;
+            } else {
+                for (Expression expression : iterable) {
+                    objValueOf = expression.visit(this);
+                    Object obj = popReturnValue();
+                    if (obj != null) {
+                        objValueOf = obj;
+                        break;
+                    }
                 }
             }
             return objValueOf;
@@ -217,15 +342,16 @@ public final class ExpressionEvaluatorImpl<TEntity> implements ExpressionEvaluat
 
     @Override
     public Object visitFloat(@NotNull FloatExpression floatExpression) {
-        return Float.valueOf(floatExpression.value());
+        return floatExpression.boxed();
     }
 
     @Override
     public Object visitExecutionScope(@NotNull ExecutionScopeExpression executionScope) {
         Object objMo2074xaffeef43 = null;
-        Iterator<Expression> it = executionScope.expressions().iterator();
-        while (it.hasNext()) {
-            objMo2074xaffeef43 = it.next().visit(this);
+        final List<Expression> expressions = executionScope.expressions();
+        final int size = expressions.size();
+        for (int i = 0; i < size; i++) {
+            objMo2074xaffeef43 = expressions.get(i).visit(this);
             Object obj = popReturnValue();
             if (obj != null) {
                 return obj;
@@ -240,9 +366,10 @@ public final class ExpressionEvaluatorImpl<TEntity> implements ExpressionEvaluat
     private boolean buildExecutionScope(@NotNull ExecutionScopeExpression executionScope) {
         this.cnt++;
         try {
-            Iterator<Expression> it = executionScope.expressions().iterator();
-            while (it.hasNext()) {
-                it.next().visit(this);
+            final List<Expression> expressions = executionScope.expressions();
+            final int size = expressions.size();
+            for (int i = 0; i < size; i++) {
+                expressions.get(i).visit(this);
                 if (popReturnValue() != null) {
                     return true;
                 }
@@ -337,12 +464,12 @@ public final class ExpressionEvaluatorImpl<TEntity> implements ExpressionEvaluat
         Object value = expression.expression().visit(this);
         switch (expression.op()) {
             case LOGICAL_NEGATION:
-                return !ValueConversions.asBoolean(value);
+                return ValueConversions.asBoolean(value) ? Boolean.FALSE : Boolean.TRUE;
             case ARITHMETICAL_NEGATION:
                 return -ValueConversions.asFloat(value);
             case RETURN: {
                 this.returnValue = value;
-                return 0D;
+                return DOUBLE_ZERO;
             }
             default:
                 throw new IllegalStateException("Unknown operation");
@@ -385,25 +512,5 @@ public final class ExpressionEvaluatorImpl<TEntity> implements ExpressionEvaluat
 
     private interface Evaluator<TEntity> {
         Object eval(ExpressionEvaluatorImpl<TEntity> evaluator, Expression a, Expression b);
-    }
-
-    private interface BooleanOperator {
-        boolean operate(LazyEvaluableBoolean a, LazyEvaluableBoolean b);
-    }
-
-    interface LazyEvaluableBoolean {
-        boolean eval();
-    }
-
-    interface LazyEvaluableFloat {
-        float eval();
-    }
-
-    private interface Comparator {
-        boolean compare(LazyEvaluableFloat a, LazyEvaluableFloat b);
-    }
-
-    private interface ArithmeticOperator {
-        float operate(LazyEvaluableFloat a, LazyEvaluableFloat b);
     }
 }

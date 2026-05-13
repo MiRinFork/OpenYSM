@@ -45,8 +45,8 @@ dependencies {
     include "dev.onyxstudios.cardinal-components-api:cardinal-components-base:5.2.3"
     include "dev.onyxstudios.cardinal-components-api:cardinal-components-entity:5.2.3"
 
-    implementation "com.github.OpenYSM:ImageStream:-SNAPSHOT"
-    include "com.github.OpenYSM:ImageStream:-SNAPSHOT"
+    implementation "com.github.TartaricAlkaline:ImageStream:-SNAPSHOT"
+    include "com.github.TartaricAlkaline:ImageStream:-SNAPSHOT"
 
     common(project(path: ':common', configuration: 'namedElements')) { transitive false }
     shadowBundle project(path: ':common', configuration: 'transformProductionFabric')

@@ -17,6 +17,11 @@ import org.joml.Vector4f;
 import rip.ysm.compat.oculus.OculusCompat;
 import rip.ysm.compat.optifine.OptiFineDetector;
 
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.nio.FloatBuffer;
+import java.nio.IntBuffer;
+
 public class NativeModelRenderer {
     private static final Matrix4f projectionModelViewMatrix = new Matrix4f();
 
@@ -188,9 +193,9 @@ public class NativeModelRenderer {
         localMat.rotateY(animRy);
         localMat.rotateX(animRx);
 
-        if (bone.name.equals("gun")) {
-            //"".hashCode();
-        }
+//        if (bone.name.equals("gun")) {
+//            //"".hashCode();
+//        }
 
         if (animSx != 1.0f || animSy != 1.0f || animSz != 1.0f) {
             localMat.scale(animSx, animSy, animSz);
@@ -205,25 +210,26 @@ public class NativeModelRenderer {
 
     private static final float[] matrixTransferArray = new float[48];
     @SuppressWarnings("unused") // TODO: native中直接往VertexConsumer中的buffer写入顶点
-    public static void submitVertices(Object v, int vertexCount, float[] fArr, int[] iArr) {
-        int floatIndex = 0;
-        int intIndex = 0;
-
-        for (int i = 0; i < vertexCount; i++) {
-            ((VertexConsumer)v).vertex(
+    public static void submitVertices(Object v, int vertexCount, ByteBuffer fBuf, ByteBuffer iBuf) {
+        FloatBuffer f = fBuf.order(ByteOrder.nativeOrder()).asFloatBuffer();
+        IntBuffer in = iBuf.order(ByteOrder.nativeOrder()).asIntBuffer();
+        VertexConsumer vc = (VertexConsumer) v;
+        int fIdx = 0, iIdx = 0;
+        for (int n = 0; n < vertexCount; n++) {
+            vc.vertex(
                     // position
-                    fArr[floatIndex + 0], fArr[floatIndex + 1], fArr[floatIndex + 2],
+                    f.get(fIdx),     f.get(fIdx + 1), f.get(fIdx + 2),
                     // rgba
-                    fArr[floatIndex + 3], fArr[floatIndex + 4], fArr[floatIndex + 5], fArr[floatIndex + 6],
+                    f.get(fIdx + 3), f.get(fIdx + 4), f.get(fIdx + 5), f.get(fIdx + 6),
                     // uv
-                    fArr[floatIndex + 7], fArr[floatIndex + 8],
+                    f.get(fIdx + 7), f.get(fIdx + 8),
                     // overlay light
-                    iArr[intIndex + 0], iArr[intIndex + 1],
-                    //normal
-                    fArr[floatIndex + 9], fArr[floatIndex + 10], fArr[floatIndex + 11]
+                    in.get(iIdx),    in.get(iIdx + 1),
+                    // normal
+                    f.get(fIdx + 9), f.get(fIdx + 10), f.get(fIdx + 11)
             );
-            floatIndex += 12;
-            intIndex += 2;
+            fIdx += 12;
+            iIdx += 2;
         }
     }
 

@@ -12,14 +12,18 @@ public class Vector3v {
 
     private final IValue z;
 
+    private final Vector3f vector;
+
     public Vector3v(IValue x, IValue y, IValue z) {
         this.x = x;
         this.y = y;
         this.z = z;
+
+        this.vector = new Vector3f();
     }
 
     public Vector3f eval(ExpressionEvaluator<?> evaluator) {
-        return new Vector3f(x.evalAsFloat(evaluator),
+        return this.vector.set(x.evalAsFloat(evaluator),
                 y.evalAsFloat(evaluator),
                 z.evalAsFloat(evaluator));
     }
