@@ -14,6 +14,10 @@ public class OptionGroup {
         this.translationKey = translationKey;
     }
 
+    public String getTranslationKey() {
+        return translationKey;
+    }
+
     public Component getTitle() {
         return Component.translatable("gui.yes_steve_model.config.group." + translationKey);
     }

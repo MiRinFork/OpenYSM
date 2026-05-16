@@ -60,6 +60,24 @@ public abstract class OptionRow<T> extends AbstractWidget {
         return mx >= cx && mx < cx + controlWidth() && my >= cy && my < cy + controlHeight();
     }
 
+    public boolean isOverlayOpen() {
+        return false;
+    }
+
+    public void closeOverlay() {
+    }
+
+    public void renderOverlay(GuiGraphics g, int mouseX, int mouseY, float partialTick, float scrollDisplay) {
+    }
+
+    public boolean overlayMouseClicked(double mouseX, double mouseY, int button, float scrollDisplay) {
+        return false;
+    }
+
+    public boolean overlayMouseScrolled(double mouseX, double mouseY, double delta, float scrollDisplay) {
+        return false;
+    }
+
     protected static int blendBg(boolean hover, int base) {
         if (!hover) return base;
         int a = (base >>> 24) & 0xFF;

@@ -19,8 +19,8 @@ public class SliderOptionRow extends OptionRow<Double> {
 
     public SliderOptionRow(int x, int y, int width, int height, Option<Double> option, double min, double max, double step, String suffix) {
         super(x, y, width, height, option);
-        this.min = min;
-        this.max = max;
+        this.min = Math.min(min, max);
+        this.max = Math.max(min, max);
         this.step = Math.max(step, 0.0d);
         this.suffix = suffix == null ? "" : suffix;
         this.format = this.step >= 1.0d ? new DecimalFormat("0") : new DecimalFormat("0.0");
@@ -28,7 +28,7 @@ public class SliderOptionRow extends OptionRow<Double> {
 
     @Override
     protected int controlWidth() {
-        return 140;
+        return Mth.clamp(width / 2, 100, 260);
     }
 
     @Override
@@ -42,8 +42,9 @@ public class SliderOptionRow extends OptionRow<Double> {
         g.fill(cx, cy, cx + cw, cy + ch, blendBg(hover, 0x41000000));
         g.renderOutline(cx, cy, cw, ch, 0x90FFFFFF);
 
-        double value = option.get();
-        double t = (value - min) / (max - min);
+        double value = option.get() == null ? min : option.get();
+        double range = max - min;
+        double t = range <= 0.0d ? 0.0d : Mth.clamp((value - min) / range, 0.0d, 1.0d);
         int fillW = (int) (t * (cw - 2));
         g.fill(cx + 1, cy + 1, cx + 1 + fillW, cy + ch - 1, 0x50FFFFFF);
 

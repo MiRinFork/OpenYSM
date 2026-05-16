@@ -41,23 +41,28 @@ public class XChaCha20 extends ChaCha20Base {
 
     public byte[] processBytes(byte[] in, int offset, int length) {
         byte[] out = new byte[length];
-        int inIdx = offset;
-        int outIdx = 0;
+        processBytes(in, offset, out, 0, length);
+        return out;
+    }
+
+    public void processBytes(byte[] in, int inOff, byte[] out, int outOff, int length) {
+        int inIdx = inOff;
+        int outIdx = outOff;
         int len = length;
+        byte[] ks = keystreamBuf;
 
         while (len > 0) {
-            byte[] keystream = processBlock();
+            processBlock(ks);
             int blockLen = Math.min(64, len);
 
             for (int i = 0; i < blockLen; i++) {
-                out[outIdx + i] = (byte) (in[inIdx + i] ^ keystream[i]);
+                out[outIdx + i] = (byte) (in[inIdx + i] ^ ks[i]);
             }
             incrementCounter();
             inIdx += blockLen;
             outIdx += blockLen;
             len -= blockLen;
         }
-        return out;
     }
 
     public int updateStateYSM(long hash) {

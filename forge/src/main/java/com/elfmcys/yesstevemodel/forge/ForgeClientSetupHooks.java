@@ -1,6 +1,7 @@
 package com.elfmcys.yesstevemodel.forge;
 
 import com.elfmcys.yesstevemodel.YesSteveModel;
+import com.elfmcys.yesstevemodel.client.ClientModelManager;
 import com.elfmcys.yesstevemodel.client.compat.acceleratedrendering.AcceleratedRenderingCompat;
 import com.elfmcys.yesstevemodel.client.compat.bettercombat.BetterCombatCompat;
 import com.elfmcys.yesstevemodel.client.compat.carryon.CarryOnCompat;
@@ -82,6 +83,8 @@ public final class ForgeClientSetupHooks {
             showInCompatibleMod(SBackpackCompat.getInCompatibleInfo());
             showInCompatibleMod(ParcoolCompat.getInCompatibleInfo());
             showInCompatibleMod("epicfight", "Epic Fight");
+
+            ClientModelManager.loadDefaultModel();
         });
     }
 

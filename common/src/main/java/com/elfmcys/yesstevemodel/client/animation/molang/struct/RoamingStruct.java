@@ -38,7 +38,7 @@ public class RoamingStruct implements Struct {
 
     @Override
     public Object getProperty(int i) {
-        return Float.valueOf(this.floatVars.get(i));
+        return this.floatVars.get(i);
     }
 
     @Override

@@ -28,7 +28,7 @@ public class Armor extends LivingEntityFunction {
 
     @Override
     public Object eval(ExecutionContext<IContext<LivingEntity>> context, ArgumentCollection arguments) {
-        EquipmentSlot slotType = MolangUtils.parseSlotType(context.entity(), arguments.getAsString(context, 0));
+        EquipmentSlot slotType = MolangUtils.parseSlotType(context, arguments, 0);
         if (slotType == null || !slotType.isArmor()) {
             return null;
         }

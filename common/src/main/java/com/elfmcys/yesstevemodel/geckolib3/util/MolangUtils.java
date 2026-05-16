@@ -1,20 +1,23 @@
 package com.elfmcys.yesstevemodel.geckolib3.util;
 
 import com.elfmcys.yesstevemodel.geckolib3.core.molang.context.IContext;
+import com.elfmcys.yesstevemodel.molang.parser.ast.Expression;
+import com.elfmcys.yesstevemodel.molang.parser.ast.StringExpression;
 import com.elfmcys.yesstevemodel.molang.runtime.ExecutionContext;
 import com.elfmcys.yesstevemodel.molang.runtime.Function;
+import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.level.block.state.BlockState;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.HashMap;
 import java.util.Locale;
+import java.util.Map;
 
 public class MolangUtils {
 
-    private static final HashMap<String, EquipmentSlot> SLOT_MAP = new HashMap<>();
+    private static final Map<String, EquipmentSlot> SLOT_MAP = new Object2ObjectOpenHashMap<>();
 
     static {
         SLOT_MAP.put("chest", EquipmentSlot.CHEST);
@@ -56,5 +59,23 @@ public class MolangUtils {
             context.logWarning("Illegal slot type: %s.", value);
         }
         return equipmentSlot;
+    }
+
+    @Nullable
+    public static EquipmentSlot parseSlotType(ExecutionContext<? extends IContext<?>> ctx, Function.ArgumentCollection args, int index) {
+        Expression expr = args.getExpression(index);
+        if (expr instanceof StringExpression se) {
+            if (se.isSlotResolved()) {
+                return se.getCachedSlot();
+            }
+            String name = se.getName();
+            EquipmentSlot slot = SLOT_MAP.get(name.toLowerCase(Locale.ENGLISH));
+            if (slot == null) {
+                ctx.entity().logWarning("Illegal slot type: %s.", name);
+            }
+            se.setCachedSlot(slot);
+            return slot;
+        }
+        return parseSlotType(ctx.entity(), args.getAsString(ctx, index));
     }
 }

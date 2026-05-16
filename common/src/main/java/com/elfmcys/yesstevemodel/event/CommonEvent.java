@@ -16,7 +16,6 @@ public final class CommonEvent {
     }
 
     public static Object nativeInit() {
-        if (!PlatformAPI.isServer()) ClientModelManager.loadDefaultModel();
         try {
             ServerModelManager.reloadPacks();
         } catch (IOException e) {

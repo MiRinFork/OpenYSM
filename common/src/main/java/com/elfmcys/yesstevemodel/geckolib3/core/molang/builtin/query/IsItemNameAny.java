@@ -16,7 +16,7 @@ public class IsItemNameAny extends LivingEntityFunction {
     @Override
     public Object eval(ExecutionContext<IContext<LivingEntity>> context, ArgumentCollection arguments) {
         ResourceLocation key;
-        EquipmentSlot slotType = MolangUtils.parseSlotType(context.entity(), arguments.getAsString(context, 0));
+        EquipmentSlot slotType = MolangUtils.parseSlotType(context, arguments, 0);
         if (slotType == null) {
             return null;
         }

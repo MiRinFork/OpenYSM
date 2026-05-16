@@ -11,7 +11,8 @@ import java.util.function.IntConsumer;
 import java.util.stream.Collectors;
 
 public final class ShaderUtil {
-    private ShaderUtil() {}
+    private ShaderUtil() {
+    }
 
     public static String loadResource(String path) throws IOException {
         try (InputStream in = ShaderUtil.class.getResourceAsStream(path)) {

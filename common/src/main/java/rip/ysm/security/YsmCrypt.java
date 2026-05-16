@@ -42,7 +42,11 @@ public class YsmCrypt {
     }
 
     public static byte[] encryptServerCache(byte[] clearText, byte[] serverKey, long hash1, long hash2) throws Exception {
-        byte[] zstdData = YsmZstd.compress(clearText);
+        return encryptServerCache(clearText, 0, clearText.length, serverKey, hash1, hash2);
+    }
+
+    public static byte[] encryptServerCache(byte[] clearText, int clearOffset, int clearLength, byte[] serverKey, long hash1, long hash2) throws Exception {
+        byte[] zstdData = YsmZstd.compress(clearText, clearOffset, clearLength);
         int paddingLength = 16 + theRandom.nextInt(112);
         int randomTop6Bits = theRandom.nextInt(64) << 10;
         int headerWord = (paddingLength & 0x3FF) | randomTop6Bits;
@@ -55,9 +59,9 @@ public class YsmCrypt {
         System.arraycopy(zstdData, 0, payloadToEncrypt, 2 + paddingLength, zstdData.length);
         byte[] chachaKeyS = Arrays.copyOfRange(serverKey, 0, 32);
         byte[] chachaIvS = Arrays.copyOfRange(serverKey, 32, 56);
-        byte[] xoredS = mt19937Xor(payloadToEncrypt, serverKey, SEED_KEY_DERIVATION);
-        byte[] encryptedPayload = modifiedChaChaEncrypt(xoredS, chachaKeyS, chachaIvS, SEED_CACHE_DECRYPTION);
-        try (YSMByteBuf headerBuf = new YSMByteBuf(Unpooled.buffer());) {
+        mt19937XorInPlace(payloadToEncrypt, serverKey, SEED_KEY_DERIVATION);
+        byte[] encryptedPayload = modifiedChaChaEncrypt(payloadToEncrypt, chachaKeyS, chachaIvS, SEED_CACHE_DECRYPTION);
+        try (YSMByteBuf headerBuf = new YSMByteBuf(Unpooled.buffer())) {
             headerBuf.writeVarInt(1);
             headerBuf.writeVarInt(0);
             headerBuf.writeVarInt(0);
@@ -68,18 +72,16 @@ public class YsmCrypt {
             headerBuf.writeVarInt(0);
             headerBuf.writeVarInt(0);
 
-            byte[] headers = new byte[headerBuf.getRawBuf().readableBytes()];
-            headerBuf.getRawBuf().readBytes(headers);
-
-            int finalPayloadLen = headers.length + encryptedPayload.length;
+            int headerLen = headerBuf.getRawBuf().readableBytes();
+            int finalPayloadLen = headerLen + encryptedPayload.length;
             ByteBuffer finalBuf = ByteBuffer.allocate(finalPayloadLen + 8).order(ByteOrder.LITTLE_ENDIAN);
 
-            finalBuf.put(headers);
+            headerBuf.getRawBuf().readBytes(finalBuf.array(), 0, headerLen);
+            finalBuf.position(headerLen);
             finalBuf.put(encryptedPayload);
 
-            byte[] dataToHash = Arrays.copyOfRange(finalBuf.array(), 0, finalPayloadLen);
             CityHash ch = new CityHash();
-            long calculatedHash = ch.hash64WithSeed(dataToHash, SEED_CACHE_VERIFICATION);
+            long calculatedHash = ch.hash64WithSeed(finalBuf.array(), 0, finalPayloadLen, SEED_CACHE_VERIFICATION);
             long realHash = calculatedHash ^ hash1 ^ hash2; // 签名
 
             finalBuf.putLong(realHash);
@@ -91,10 +93,9 @@ public class YsmCrypt {
     public static boolean verifyServerCache(byte[] cacheData, long hash1, long hash2) {
         if (cacheData.length < 8) return false;
         int payloadEnd = cacheData.length - 8;
-        byte[] payload = Arrays.copyOfRange(cacheData, 0, payloadEnd);
         long fileSignature = ByteBuffer.wrap(cacheData, payloadEnd, 8).order(ByteOrder.LITTLE_ENDIAN).getLong();
         CityHash ch = new CityHash();
-        long calculatedHash = ch.hash64WithSeed(payload, SEED_CACHE_VERIFICATION);
+        long calculatedHash = ch.hash64WithSeed(cacheData, 0, payloadEnd, SEED_CACHE_VERIFICATION);
         long expectedSignature = calculatedHash ^ hash1 ^ hash2;
         return fileSignature == expectedSignature;
     }
@@ -201,11 +202,8 @@ public class YsmCrypt {
         fileBuf.put(key);
         fileBuf.put(iv);
 
-        byte[] dataToHash = new byte[totalSizeWithoutHash];
-        System.arraycopy(fileBuf.array(), 0, dataToHash, 0, totalSizeWithoutHash);
-
         CityHash ch = new CityHash();
-        long fileHash = ch.hash64WithSeed(dataToHash, SEED_FILE_VERIFICATION);
+        long fileHash = ch.hash64WithSeed(fileBuf.array(), 0, totalSizeWithoutHash, SEED_FILE_VERIFICATION);
         fileBuf.putLong(fileHash);
 
         return fileBuf.array();
@@ -233,32 +231,29 @@ public class YsmCrypt {
             if (payloadEnd <= headerEnd) {
                 throw new RuntimeException("Invalid server payload size!");
             }
-
-            byte[] headers = Arrays.copyOfRange(serverData, headerStart, headerEnd);
-            byte[] serverEncryptedPayload = Arrays.copyOfRange(serverData, headerEnd, payloadEnd);
+            int headerLen = headerEnd - headerStart;
 
             // packet shell
             byte[] chachaKeyS = Arrays.copyOfRange(serverKey, 0, 32);
             byte[] chachaIvS = Arrays.copyOfRange(serverKey, 32, 56);
 
-            byte[] chachaDecS = modifiedChaChaDecrypt(serverEncryptedPayload, chachaKeyS, chachaIvS, SEED_CACHE_DECRYPTION);
-            byte[] plainText = mt19937Xor(chachaDecS, serverKey, SEED_KEY_DERIVATION);
+            byte[] plainText = modifiedChaChaDecrypt(serverData, headerEnd, payloadEnd - headerEnd, chachaKeyS, chachaIvS, SEED_CACHE_DECRYPTION);
+            mt19937XorInPlace(plainText, serverKey, SEED_KEY_DERIVATION);
 
             // local shell
             byte[] chachaKeyC = Arrays.copyOfRange(clientKey, 0, 32);
             byte[] chachaIvC = Arrays.copyOfRange(clientKey, 32, 56);
 
-            byte[] xoredC = mt19937Xor(plainText, clientKey, SEED_KEY_DERIVATION);
-            byte[] clientEncryptedPayload = modifiedChaChaEncrypt(xoredC, chachaKeyC, chachaIvC, SEED_CACHE_DECRYPTION);
+            mt19937XorInPlace(plainText, clientKey, SEED_KEY_DERIVATION);
+            byte[] clientEncryptedPayload = modifiedChaChaEncrypt(plainText, chachaKeyC, chachaIvC, SEED_CACHE_DECRYPTION);
 
-            int finalPayloadLen = headers.length + clientEncryptedPayload.length;
+            int finalPayloadLen = headerLen + clientEncryptedPayload.length;
             ByteBuffer finalBuf = ByteBuffer.allocate(finalPayloadLen + 8).order(ByteOrder.LITTLE_ENDIAN);
-            finalBuf.put(headers);
+            finalBuf.put(serverData, headerStart, headerLen);
             finalBuf.put(clientEncryptedPayload);
 
-            byte[] dataToHash = Arrays.copyOfRange(finalBuf.array(), 0, finalPayloadLen);
             CityHash ch = new CityHash();
-            long calculatedHash = ch.hash64WithSeed(dataToHash, SEED_CACHE_VERIFICATION);
+            long calculatedHash = ch.hash64WithSeed(finalBuf.array(), 0, finalPayloadLen, SEED_CACHE_VERIFICATION);
             long realHash = calculatedHash ^ hash1 ^ hash2;
 
             finalBuf.putLong(realHash);
@@ -286,14 +281,11 @@ public class YsmCrypt {
                 nextRoundSize = plainText.length - blockPointer;
             }
 
-            byte[] plainChunk = Arrays.copyOfRange(plainText, blockPointer, blockPointer + nextRoundSize);
-            byte[] encChunk = ctx.processBytes(plainChunk, 0, nextRoundSize);
-            System.arraycopy(encChunk, 0, result, blockPointer, nextRoundSize);
-
+            ctx.processBytes(plainText, blockPointer, result, blockPointer, nextRoundSize);
             blockPointer += nextRoundSize;
 
             if (blockPointer < plainText.length) {
-                long resHash = ch.hash64WithSeed(plainChunk, seed);
+                long resHash = ch.hash64WithSeed(plainText, blockPointer - nextRoundSize, nextRoundSize, seed);
                 nextRoundSize = ctx.updateStateYSM(resHash);
             }
         }
@@ -310,16 +302,13 @@ public class YsmCrypt {
             headerLength++;
         }
 
-//        String headerString = new String(fileData, 0, headerLength, StandardCharsets.UTF_8);
-//        System.out.println(headerString);
-
         int tailOffset = fileData.length - 64;
         byte[] key = Arrays.copyOfRange(fileData, tailOffset, tailOffset + 32);
         byte[] iv = Arrays.copyOfRange(fileData, tailOffset + 32, tailOffset + 56);
         long fileHash = ByteBuffer.wrap(fileData, tailOffset + 56, 8).order(ByteOrder.LITTLE_ENDIAN).getLong();
 
         CityHash ch = new CityHash();
-        long calculatedHash = ch.hash64WithSeed(Arrays.copyOfRange(fileData, 0, fileData.length - 8), SEED_FILE_VERIFICATION);
+        long calculatedHash = ch.hash64WithSeed(fileData, 0, fileData.length - 8, SEED_FILE_VERIFICATION);
         if (calculatedHash != fileHash) {
             throw new RuntimeException("Corrupted YSM file: File hash mismatch.");
         }
@@ -331,25 +320,26 @@ public class YsmCrypt {
         }
         ptrBinaryData += 4;
 
-        byte[] encryptedBinaryData = Arrays.copyOfRange(fileData, ptrBinaryData, tailOffset);
-        byte[] chachaDecrypted = modifiedChaChaDecrypt(encryptedBinaryData, key, iv, SEED_RES_VERIFICATION);
+        byte[] chachaDecrypted = modifiedChaChaDecrypt(fileData, ptrBinaryData, tailOffset - ptrBinaryData, key, iv, SEED_RES_VERIFICATION);
 
         byte[] keyIv = new byte[56];
         System.arraycopy(key, 0, keyIv, 0, 32);
         System.arraycopy(iv, 0, keyIv, 32, 24);
-        byte[] xorredData = mt19937Xor(chachaDecrypted, keyIv, SEED_KEY_DERIVATION);
+        mt19937XorInPlace(chachaDecrypted, keyIv, SEED_KEY_DERIVATION);
+        byte[] xorredData = chachaDecrypted;
 
         //uint16_t n = xorred_data[0] | (xorred_data[1] << 8); n &= 0x3ff;
         int n = ((xorredData[0] & 0xFF) | ((xorredData[1] & 0xFF) << 8)) & 0x3FF;
 
-//        System.out.println("Size: " + n);
         int zstdOffset = 2 + n;
-        byte[] bytes = Arrays.copyOfRange(xorredData, zstdOffset, xorredData.length);
-
-        return YsmZstd.decompress(bytes);
+        return YsmZstd.decompress(xorredData, zstdOffset, xorredData.length - zstdOffset);
     }
 
     private static byte[] modifiedChaChaDecrypt(byte[] data, byte[] key, byte[] iv, long seed) throws Exception {
+        return modifiedChaChaDecrypt(data, 0, data.length, key, iv, seed);
+    }
+
+    private static byte[] modifiedChaChaDecrypt(byte[] data, int dataOff, int dataLen, byte[] key, byte[] iv, long seed) throws Exception {
         byte[] keyIv = new byte[56];
         System.arraycopy(key, 0, keyIv, 0, 32);
         System.arraycopy(iv, 0, keyIv, 32, 24);
@@ -363,19 +353,18 @@ public class YsmCrypt {
 
         XChaCha20 ctx = new XChaCha20(key, iv, rounds);
 
-        byte[] result = new byte[data.length];
+        byte[] result = new byte[dataLen];
         int blockPointer = 0;
 
-        while (blockPointer < data.length) {
-            if (blockPointer + nextRoundSize > data.length) {
-                nextRoundSize = data.length - blockPointer;
+        while (blockPointer < dataLen) {
+            if (blockPointer + nextRoundSize > dataLen) {
+                nextRoundSize = dataLen - blockPointer;
             }
-            byte[] decChunk = ctx.processBytes(data, blockPointer, nextRoundSize);
-            System.arraycopy(decChunk, 0, result, blockPointer, nextRoundSize);
+            ctx.processBytes(data, dataOff + blockPointer, result, blockPointer, nextRoundSize);
             blockPointer += nextRoundSize;
 
-            if (blockPointer < data.length) {
-                long resHash = ch.hash64WithSeed(decChunk, seed);
+            if (blockPointer < dataLen) {
+                long resHash = ch.hash64WithSeed(result, blockPointer - nextRoundSize, nextRoundSize, seed);
                 nextRoundSize = ctx.updateStateYSM(resHash);
             }
         }
@@ -387,22 +376,22 @@ public class YsmCrypt {
         if (packet.length <= 11) throw new RuntimeException("Packet too short!");
 
         int payloadLen = packet.length - 8;
-        byte[] payload = Arrays.copyOfRange(packet, 0, payloadLen);
         long packetHash = ByteBuffer.wrap(packet, payloadLen, 8).order(ByteOrder.LITTLE_ENDIAN).getLong();
 
         CityHash ch = new CityHash();
-        long calculatedHash = ch.hash64WithSeed(payload, SEED_PACKET_VERIFICATION);
+        long calculatedHash = ch.hash64WithSeed(packet, 0, payloadLen, SEED_PACKET_VERIFICATION);
         if (calculatedHash != packetHash) {
             System.err.println("Integrity compromised: " + Base64.getEncoder().encodeToString(packet));
         }
 
-        byte[] xoredData = mt19937Xor(payload, key, SEED_KEY_DERIVATION);
+        byte[] xoredData = mt19937Xor(packet, 0, payloadLen, key, SEED_KEY_DERIVATION);
 
         byte[] chachaKey = Arrays.copyOfRange(key, 0, 32);
         byte[] chachaIv = Arrays.copyOfRange(key, 32, 56);
         XChaCha20 chacha = new XChaCha20(chachaKey, chachaIv, 30);
 
-        return chacha.processBytes(xoredData, 0, xoredData.length);
+        chacha.processBytes(xoredData, 0, xoredData, 0, xoredData.length);
+        return xoredData;
     }
 
     public static EncryptedPacket encrypt(byte[] payload, byte[] currentKeyIv, boolean appendNextKey) throws Exception {
@@ -434,20 +423,39 @@ public class YsmCrypt {
     }
 
     private static byte[] mt19937Xor(byte[] data, byte[] currentKeyIv, long seedDerivation) {
+        return mt19937Xor(data, 0, data.length, currentKeyIv, seedDerivation);
+    }
+
+    private static byte[] mt19937Xor(byte[] data, int offset, int length, byte[] currentKeyIv, long seedDerivation) {
         long mtSeed = new CityHash().hash64WithSeed(currentKeyIv, seedDerivation);
         MT19937 mt = new MT19937(mtSeed);
-        byte[] result = new byte[data.length];
+        byte[] result = new byte[length];
+
+        int i = 0;
+        while (i < length) {
+            long rnd = mt.extract_number();
+            for (int j = 0; j < 8 && i < length; ++j) {
+                byte keystreamByte = (byte) ((rnd >>> (j * 8)) & 0xFF);
+                result[i] = (byte) (data[offset + i] ^ keystreamByte);
+                i++;
+            }
+        }
+        return result;
+    }
+
+    private static void mt19937XorInPlace(byte[] data, byte[] currentKeyIv, long seedDerivation) {
+        long mtSeed = new CityHash().hash64WithSeed(currentKeyIv, seedDerivation);
+        MT19937 mt = new MT19937(mtSeed);
 
         int i = 0;
         while (i < data.length) {
             long rnd = mt.extract_number();
             for (int j = 0; j < 8 && i < data.length; ++j) {
                 byte keystreamByte = (byte) ((rnd >>> (j * 8)) & 0xFF);
-                result[i] = (byte) (data[i] ^ keystreamByte);
+                data[i] = (byte) (data[i] ^ keystreamByte);
                 i++;
             }
         }
-        return result;
     }
 
     public static byte[] read(byte[] cacheFileData, byte[] clientKey) throws Exception {
@@ -467,20 +475,17 @@ public class YsmCrypt {
             if (payloadEnd <= headerEnd) {
                 throw new RuntimeException("Cache file is too small or corrupted!");
             }
-            byte[] encryptedPayload = Arrays.copyOfRange(cacheFileData, headerEnd, payloadEnd);
 
             byte[] chachaKeyC = Arrays.copyOfRange(clientKey, 0, 32);
             byte[] chachaIvC = Arrays.copyOfRange(clientKey, 32, 56);
 
-            byte[] chachaDec = modifiedChaChaDecrypt(encryptedPayload, chachaKeyC, chachaIvC, SEED_CACHE_DECRYPTION);
-            byte[] plainText = mt19937Xor(chachaDec, clientKey, SEED_KEY_DERIVATION);
+            byte[] plainText = modifiedChaChaDecrypt(cacheFileData, headerEnd, payloadEnd - headerEnd, chachaKeyC, chachaIvC, SEED_CACHE_DECRYPTION);
+            mt19937XorInPlace(plainText, clientKey, SEED_KEY_DERIVATION);
 
             int n = ((plainText[0] & 0xFF) | ((plainText[1] & 0xFF) << 8)) & 0x3FF;
             int zstdOffset = 2 + n;
 
-            byte[] zstdData = Arrays.copyOfRange(plainText, zstdOffset, plainText.length);
-
-            return YsmZstd.decompress(zstdData);
+            return YsmZstd.decompress(plainText, zstdOffset, plainText.length - zstdOffset);
         }
     }
 }

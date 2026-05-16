@@ -1,8 +1,8 @@
 package com.elfmcys.yesstevemodel.resource;
 
 import com.elfmcys.yesstevemodel.resource.pojo.RawYsmModel;
-import rip.ysm.security.YSMByteBuf;
 import io.netty.buffer.Unpooled;
+import rip.ysm.security.YSMByteBuf;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -39,6 +39,12 @@ public class YSMBinaryDeserializer implements AutoCloseable{
         } else {
             deserializeModern();
         }
+
+        model.projectiles.entrySet().removeIf(entry -> { // 老版本格式可能有动画没模型没纹理
+            RawYsmModel.RawSubEntity sub = entry.getValue();
+            return sub.model == null || sub.textures.isEmpty();
+        });
+
         int offset = reader.getOffset(); // 关闭前获取偏移量
         if (closeOnExit) {
             this.reader.close();
@@ -137,7 +143,13 @@ public class YSMBinaryDeserializer implements AutoCloseable{
             tex.width = reader.readVarInt();
             tex.height = reader.readVarInt();
             tex.imageFormat = -1; // RGBA
-            model.mainEntity.textures.put(tex.name, tex);
+
+
+            if ("arrow.png".equals(tex.name))
+                model.projectiles.get("minecraft:arrow").textures.put(tex.name, tex);
+            else
+                model.mainEntity.textures.put(tex.name, tex);
+
             tempTextures.add(tex);
         }
 
@@ -249,8 +261,8 @@ public class YSMBinaryDeserializer implements AutoCloseable{
             // 特殊處理一下
             if ("/ARROW\\".equals(tex.name))
                 model.projectiles.get("minecraft:arrow").textures.put(tex.name, tex);
-
-            model.mainEntity.textures.put(tex.name, tex);
+            else
+                model.mainEntity.textures.put(tex.name, tex);
 
         }
 
@@ -561,12 +573,18 @@ public class YSMBinaryDeserializer implements AutoCloseable{
             }
         }
 
+        if (isNewVersionYsm == 0 && format <= 15) return;
+
         model.properties.widthScale = reader.readFloat();
         model.properties.heightScale = reader.readFloat();
 
         int extraAnimationsCount = reader.readVarInt();
         for (int i = 0; i < extraAnimationsCount; i++) {
-            model.properties.extraAnimations.put(reader.readString(), reader.readString());
+            try {
+                model.properties.extraAnimations.put(reader.readString(), reader.readString());
+            } catch (Throwable ex ){
+                throw new RuntimeException("Error reading extra animations at index " + i, ex);
+            }
         }
 
         if (format > 9) {

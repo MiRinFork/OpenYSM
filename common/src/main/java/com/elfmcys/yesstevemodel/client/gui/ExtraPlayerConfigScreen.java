@@ -39,7 +39,10 @@ public class ExtraPlayerConfigScreen extends OptionScreen {
         OptionGroup misc = new OptionGroup("misc")
                 .add(new BooleanOptionRow(0, 0, 0, 22, Option.ofBoolean("print_animation_roulette_msg", GeneralConfig.PRINT_ANIMATION_ROULETTE_MSG)))
                 .add(new BooleanOptionRow(0, 0, 0, 22, Option.ofBoolean("disable_loading_state_screen", LoadingStateConfig.DISABLE_LOADING_STATE_SCREEN)))
-                .add(new EnumOptionRow<>(0, 0, 0, 22, Option.ofEnum("loading_state_position", LoadingStateConfig.LOADING_STATE_POSITION), LoadingStateConfig.Position.values()));
+                .add(new EnumOptionRow<>(0, 0, 0, 22, Option.ofEnum("loading_state_position", LoadingStateConfig.LOADING_STATE_POSITION), LoadingStateConfig.Position.values()))
+                .add(new EnumOptionRow<>(0, 0, 0, 22, Option.ofEnum("roulette_settings_mode", GeneralConfig.ROULETTE_SETTINGS_MODE), GeneralConfig.RouletteSettingsMode.values()))
+                .add(new EnumOptionRow<>(0, 0, 0, 22, Option.ofEnum("roulette_mode", GeneralConfig.ROULETTE_MODE), GeneralConfig.RouletteMode.values()))
+                .add(new BooleanOptionRow(0, 0, 0, 22, Option.ofBoolean("blur_gui", GeneralConfig.BLUR_GUI)));
 
         groups.add(general);
         groups.add(rendering);

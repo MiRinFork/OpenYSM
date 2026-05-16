@@ -10,7 +10,7 @@ import net.minecraft.world.entity.LivingEntity;
 public class MaxDurability extends LivingEntityFunction {
     @Override
     public Object eval(ExecutionContext<IContext<LivingEntity>> context, ArgumentCollection arguments) {
-        return CosmeticArmorHelper.getArmorItem(context.entity().entity(), MolangUtils.parseSlotType(context.entity(), arguments.getAsString(context, 0))).getMaxDamage();
+        return CosmeticArmorHelper.getArmorItem(context.entity().entity(), MolangUtils.parseSlotType(context, arguments, 0)).getMaxDamage();
     }
 
     @Override

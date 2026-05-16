@@ -11,7 +11,7 @@ import net.minecraft.world.item.ItemStack;
 public class RemainingDurability extends LivingEntityFunction {
     @Override
     public Object eval(ExecutionContext<IContext<LivingEntity>> context, ArgumentCollection arguments) {
-        ItemStack stack = CosmeticArmorHelper.getArmorItem(context.entity().entity(), MolangUtils.parseSlotType(context.entity(), arguments.getAsString(context, 0)));
+        ItemStack stack = CosmeticArmorHelper.getArmorItem(context.entity().entity(), MolangUtils.parseSlotType(context, arguments, 0));
         return stack.getMaxDamage() - stack.getDamageValue();
     }
 

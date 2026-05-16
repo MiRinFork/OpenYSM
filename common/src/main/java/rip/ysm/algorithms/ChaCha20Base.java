@@ -3,12 +3,14 @@ package rip.ysm.algorithms;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.IntBuffer;
-import java.util.Arrays;
 
 public abstract class ChaCha20Base {
     protected static final int[] SIGMA = toIntArray(new byte[]{101, 120, 112, 97, 110, 100, 32, 51, 50, 45, 98, 121, 116, 101, 32, 107});
     public final int[] state = new int[16];
     public int rounds;
+
+    protected final int[] workingState = new int[16];
+    protected final byte[] keystreamBuf = new byte[64];
 
     protected static int rotateLeft(int i, int i2) {
         return (i >>> (-i2)) | (i << i2);
@@ -42,19 +44,26 @@ public abstract class ChaCha20Base {
         return iArr;
     }
 
-    protected static byte[] toByteArray(int[] ints) {
-        ByteBuffer buf = ByteBuffer.allocate(ints.length * 4).order(ByteOrder.LITTLE_ENDIAN);
-        buf.asIntBuffer().put(ints);
-        return buf.array();
+    public byte[] processBlock() {
+        processBlock(keystreamBuf);
+        return keystreamBuf;
     }
 
-    public byte[] processBlock() {
-        int[] workingState = state.clone();
-        shuffleState(workingState, this.rounds);
+    public void processBlock(byte[] out) {
+        int[] ws = workingState;
+        System.arraycopy(state, 0, ws, 0, 16);
+        shuffleState(ws, this.rounds);
         for (int i = 0; i < 16; i++) {
-            workingState[i] += state[i];
+            ws[i] += state[i];
         }
-        return toByteArray(workingState);
+        for (int i = 0; i < 16; i++) {
+            int v = ws[i];
+            int p = i << 2;
+            out[p]     = (byte) v;
+            out[p + 1] = (byte) (v >>> 8);
+            out[p + 2] = (byte) (v >>> 16);
+            out[p + 3] = (byte) (v >>> 24);
+        }
     }
 
     public void incrementCounter() {

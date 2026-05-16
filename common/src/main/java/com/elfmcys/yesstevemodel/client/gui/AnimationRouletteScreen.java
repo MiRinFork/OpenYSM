@@ -1,14 +1,17 @@
 package com.elfmcys.yesstevemodel.client.gui;
 
-import com.elfmcys.yesstevemodel.client.event.AnimationLockEvent;
-import com.elfmcys.yesstevemodel.client.gui.custom.ExtraAnimationButtons;
 import com.elfmcys.yesstevemodel.YesSteveModel;
 import com.elfmcys.yesstevemodel.capability.PlayerCapability;
-import com.elfmcys.yesstevemodel.resource.models.ModelProperties;
+import com.elfmcys.yesstevemodel.client.event.AnimationLockEvent;
 import com.elfmcys.yesstevemodel.client.gui.button.AnimationSlider;
 import com.elfmcys.yesstevemodel.client.gui.button.ConfigCheckBox;
 import com.elfmcys.yesstevemodel.client.gui.button.FlatColorButton;
 import com.elfmcys.yesstevemodel.client.gui.button.FlatIconButton;
+import com.elfmcys.yesstevemodel.client.gui.custom.AbstractConfig;
+import com.elfmcys.yesstevemodel.client.gui.custom.ExtraAnimationButtons;
+import com.elfmcys.yesstevemodel.client.gui.custom.configs.CheckboxConfig;
+import com.elfmcys.yesstevemodel.client.gui.custom.configs.RadioConfig;
+import com.elfmcys.yesstevemodel.client.gui.custom.configs.RangeConfig;
 import com.elfmcys.yesstevemodel.client.input.AnimationRouletteKey;
 import com.elfmcys.yesstevemodel.client.input.ExtraAnimationKey;
 import com.elfmcys.yesstevemodel.client.model.ModelAssembly;
@@ -17,19 +20,14 @@ import com.elfmcys.yesstevemodel.config.ServerConfig;
 import com.elfmcys.yesstevemodel.geckolib3.core.AnimatableEntity;
 import com.elfmcys.yesstevemodel.geckolib3.core.molang.util.StringPool;
 import com.elfmcys.yesstevemodel.geckolib3.resource.GeckoLibCache;
-import com.elfmcys.yesstevemodel.client.gui.custom.AbstractConfig;
-import com.elfmcys.yesstevemodel.client.gui.custom.configs.CheckboxConfig;
-import com.elfmcys.yesstevemodel.client.gui.custom.configs.RadioConfig;
-import com.elfmcys.yesstevemodel.client.gui.custom.configs.RangeConfig;
 import com.elfmcys.yesstevemodel.mixin.client.ScreenAccessor;
 import com.elfmcys.yesstevemodel.molang.parser.ParseException;
-import rip.ysm.api.client.KeyMappingFactory;
 import com.elfmcys.yesstevemodel.network.NetworkHandler;
 import com.elfmcys.yesstevemodel.network.message.C2SPlayAnimationPacket;
 import com.elfmcys.yesstevemodel.network.message.C2SRequestExecuteMolangPacket;
+import com.elfmcys.yesstevemodel.resource.models.ModelProperties;
 import com.elfmcys.yesstevemodel.util.data.OrderedStringMap;
 import com.google.common.collect.Lists;
-import com.mojang.blaze3d.platform.InputConstants;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.*;
 import net.minecraft.ChatFormatting;
@@ -58,7 +56,7 @@ import org.apache.commons.lang3.tuple.Pair;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.joml.Matrix4f;
-
+import rip.ysm.api.client.KeyMappingFactory;
 
 import java.util.*;
 import java.util.function.Consumer;
@@ -74,8 +72,6 @@ public class AnimationRouletteScreen extends Screen {
     private static final String CONFIG_DESC_FORMAT = "properties.extra_animation_buttons.%s.config_forms.%d.description";
 
     private static final String CONFIG_LABEL_FORMAT = "properties.extra_animation_buttons.%s.config_forms.%d.labels.%d";
-
-    private static final int ITEMS_PER_PAGE = 8;
 
     private static final LinkedList<Pair<String, Integer>> navigationStack = Lists.newLinkedList();
 
@@ -473,7 +469,11 @@ public class AnimationRouletteScreen extends Screen {
             if (str2.startsWith(SUBMENU_PREFIX)) {
                 String strSubstring = str2.substring(SUBMENU_PREFIX.length());
                 if (this.renderGroups.containsKey(strSubstring)) {
-                    showConfigGroup(strSubstring);
+                    if (GeneralConfig.ROULETTE_SETTINGS_MODE.get() == GeneralConfig.RouletteSettingsMode.CLASSIC) {
+                        showConfigGroup(strSubstring);
+                    } else {
+                        Minecraft.getInstance().setScreen(new rip.ysm.gui.ModelSettingsScreen(this.renderContext, this.animatableModel, this, strSubstring));
+                    }
                 }
             }
         }

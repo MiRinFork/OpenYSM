@@ -12,46 +12,59 @@ import java.nio.ByteOrder;
 
 public class YsmZstd {
     public static byte[] decompress(byte[] rawData) throws IOException {
+        return decompress(rawData, 0, rawData.length);
+    }
+
+    public static byte[] decompress(byte[] rawData, int offset, int length) throws IOException {
 /*
         if(NativeLibLoader.isLoaded())
             return YSMNative.ysmZstdDecompress(rawData);
 */
 
-        byte[] data = YsmZstd.wash(rawData);
-        //FileUtils.writeByteArrayToFile(new File("test.bin"),data);
-        return ZstdUtil.decompress(data);
+        YsmZstd.washInPlace(rawData, offset, length);
+        return ZstdUtil.decompress(rawData, offset, length);
     }
 
     public static byte[] compress(byte[] rawData) {
+        return compress(rawData, 0, rawData.length);
+    }
+
+    public static byte[] compress(byte[] rawData, int offset, int length) {
     /*    if(NativeLibLoader.isLoaded())
             return YSMNative.ysmZstdCompress(rawData,3);*/
-        byte[] zstdData = ZstdUtil.compress(rawData,3);
+        byte[] zstdData = ZstdUtil.compress(rawData, offset, length, 3);
         return YsmZstd.obfuscate(zstdData);
     }
 
     private static byte[] wash(byte[] data) {
-        if (data == null || data.length < 5) {
+        washInPlace(data, 0, data.length);
+        return data;
+    }
+
+    private static void washInPlace(byte[] data, int base, int length) {
+        if (data == null || length < 5) {
             throw new IllegalArgumentException("Invalid data length");
         }
 
-        ByteBuffer buffer = ByteBuffer.wrap(data).order(ByteOrder.LITTLE_ENDIAN);
-
-        int magic = buffer.getInt(0);
+        int magic = (data[base] & 0xFF)
+                | ((data[base + 1] & 0xFF) << 8)
+                | ((data[base + 2] & 0xFF) << 16)
+                | ((data[base + 3] & 0xFF) << 24);
         if (magic != 0xFD2FB528) {
             throw new IllegalArgumentException("Not a standard ZSTD Magic Number. May be skippable frame or unknown.");
         }
 
-        byte fhd = data[4];
-        data[4] = (byte) (fhd & 0xFB);
+        byte fhd = data[base + 4];
+        data[base + 4] = (byte) (fhd & 0xFB);
 
         int frameHeaderSize = calculateFrameHeaderSize(fhd);
-        int offset = 4 + frameHeaderSize;
+        int offset = base + 4 + frameHeaderSize;
+        int end = base + length;
 
-        while (offset + 3 <= data.length) {
+        while (offset + 3 <= end) {
             int b0 = data[offset] & 0xFF;
             int b1 = data[offset + 1] & 0xFF;
             int b2 = data[offset + 2] & 0xFF;
-            int cBlockHeader = b0 | (b1 << 8) | (b2 << 16);
             int lastBlock = (b0 >> 7) & 1;
             int blockTypeYSM = (b0 >> 5) & 3;
 
@@ -78,7 +91,6 @@ public class YsmZstd {
                 break;
             }
         }
-        return data;
     }
 
     private static byte[] obfuscate(byte[] data) {

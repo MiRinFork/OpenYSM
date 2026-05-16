@@ -497,15 +497,24 @@ public final class ServerModelManager {
                         if (YSMFolderDeserializer.isModelFolder(dir)) {
                             String modelId = baseDir.relativize(dir).toString().replace('\\', '/');
 
+                            RawYsmModel rawModel = null;
                             try (YSMFolderDeserializer deserializer = new YSMFolderDeserializer(dir)) {
-                                RawYsmModel rawModel = deserializer.deserialize();
-                                ServerModelData data = processAndCacheModel(modelId, rawModel, cacheDir, isAuth, validCaches);
-                                if (data != null) {
-                                    loaded.put(modelId, data);
-                                    if (isAuth) authIds.add(modelId);
-                                }
+                                rawModel = deserializer.deserialize();
                             } catch (Exception e) {
                                 YesSteveModel.LOGGER.error("Failed to load model at: " + dir, e);
+                            }
+
+                            if (rawModel != null) {
+                                try {
+                                    ServerModelData data = processAndCacheModel(modelId, rawModel, cacheDir, isAuth, validCaches);
+                                    rawModel = null;
+                                    if (data != null) {
+                                        loaded.put(modelId, data);
+                                        if (isAuth) authIds.add(modelId);
+                                    }
+                                } catch (Exception e) {
+                                    YesSteveModel.LOGGER.error("Failed to process model at: " + dir, e);
+                                }
                             }
 
                             return FileVisitResult.SKIP_SUBTREE;
@@ -519,39 +528,35 @@ public final class ServerModelManager {
 
                 @Override
                 public @NotNull FileVisitResult visitFile(@NotNull Path file, @NotNull BasicFileAttributes attrs) {
-                    if (file.getFileName().toString().endsWith(".ysm")) {
-                        try {
-                            String relativePath = baseDir.relativize(file).toString().replace('\\', '/');
-                            String modelId = relativePath;
-                            byte[] raw = Files.readAllBytes(file);
-                            int ysmCryptoVersion = YesModelUtils.getYsmCryptoVersion(raw);
-                            if (ysmCryptoVersion == -1) throw new IllegalStateException("Unknown YSM crypto version for file: " + file);
-                            if (ysmCryptoVersion == 1 || ysmCryptoVersion == 2) { // 旧版加密模型
-                                Map<String, byte[]> input = YesModelUtils.input(raw);
-                                try (YSMFolderDeserializer deserializer = new YSMFolderDeserializer(input)) {
-                                    RawYsmModel rawModel = deserializer.deserialize();
-                                    ServerModelData data = processAndCacheModel(modelId, rawModel, cacheDir, isAuth, validCaches);
-                                    if (data != null) {
-                                        loaded.put(modelId, data);
-                                        if (isAuth) authIds.add(modelId);
-                                    }
-                                }
-                                return FileVisitResult.CONTINUE;
-                            }
+                    if (!file.getFileName().toString().endsWith(".ysm")) return FileVisitResult.CONTINUE;
 
+                    try {
+                        String modelId = baseDir.relativize(file).toString().replace('\\', '/');
+                        byte[] raw = Files.readAllBytes(file);
+                        int ysmCryptoVersion = YesModelUtils.getYsmCryptoVersion(raw);
+                        if (ysmCryptoVersion == -1) throw new IllegalStateException("Unknown YSM crypto version for file: " + file);
+
+                        RawYsmModel rawModel;
+                        if (ysmCryptoVersion == 1 || ysmCryptoVersion == 2) { // 旧版加密模型
+                            Map<String, byte[]> input = YesModelUtils.input(raw);
+                            try (YSMFolderDeserializer deserializer = new YSMFolderDeserializer(input)) {
+                                rawModel = deserializer.deserialize();
+                            }
+                        } else {
                             byte[] decrypted = YsmCrypt.decryptYsmFile(raw);
                             try (YSMBinaryDeserializer deserializer = new YSMBinaryDeserializer(decrypted)) {
-                                RawYsmModel rawModel = deserializer.deserializeKeepOpen();
+                                rawModel = deserializer.deserializeKeepOpen();
                                 deserializer.parseYSMFooter(rawModel); // 只用于gui展示数据
-                                ServerModelData data = processAndCacheModel(modelId, rawModel, cacheDir, isAuth, validCaches);
-                                if (data != null) {
-                                    loaded.put(modelId, data);
-                                    if (isAuth) authIds.add(modelId);
-                                }
                             }
-                        } catch (Exception e) {
-                            YesSteveModel.LOGGER.error("Failed to load binary model at: " + file, e);
                         }
+
+                        ServerModelData data = processAndCacheModel(modelId, rawModel, cacheDir, isAuth, validCaches);
+                        if (data != null) {
+                            loaded.put(modelId, data);
+                            if (isAuth) authIds.add(modelId);
+                        }
+                    } catch (Exception e) {
+                        YesSteveModel.LOGGER.error("Failed to load binary model at: " + file, e);
                     }
                     return FileVisitResult.CONTINUE;
                 }
@@ -638,13 +643,18 @@ public final class ServerModelManager {
                 }
             }
             if (needsUpdate) {
-                try (YSMByteBuf serialized = YSMBinarySerializer.serialize(model, 32,true)) {
-                    byte[] rawBytes = new byte[serialized.getRawBuf().readableBytes()];
-                    serialized.getRawBuf().readBytes(rawBytes);
-
-                    byte[] encryptedCache = YsmCrypt.encryptServerCache(rawBytes, serverKey, hashes[0], hashes[1]);
-                    Files.write(cacheFile, encryptedCache);
+                byte[] encryptedCache;
+                try (YSMByteBuf serialized = YSMBinarySerializer.serialize(model, 32, true)) {
+                    io.netty.buffer.ByteBuf raw = serialized.getRawBuf();
+                    if (raw.hasArray()) {
+                        int off = raw.arrayOffset() + raw.readerIndex();
+                        int len = raw.readableBytes();
+                        encryptedCache = YsmCrypt.encryptServerCache(raw.array(), off, len, serverKey, hashes[0], hashes[1]);
+                    } else {
+                        encryptedCache = YsmCrypt.encryptServerCache(serialized.toArray(), serverKey, hashes[0], hashes[1]);
+                    }
                 }
+                Files.write(cacheFile, encryptedCache);
             }
             validCacheFiles.add(cacheFileName);
 

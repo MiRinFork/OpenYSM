@@ -47,7 +47,6 @@ import org.gagravarr.vorbis.VorbisFile;
 import org.joml.Vector2f;
 import org.joml.Vector3f;
 import rip.ysm.imagestream.avif.AvifDecoder;
-import rip.ysm.imagestream.jpeg.JpegDecoder;
 import rip.ysm.imagestream.webp.WebpDecoder;
 
 import javax.imageio.ImageIO;
@@ -206,8 +205,8 @@ public class YSMClientMapper {
                 switch (imageFormat) {
                     case 1:
                     case 2:
+                    case 3:
                         return ImageIO.read(new ByteArrayInputStream(data));
-                    case 3: return new JpegDecoder().read(data);
                     case 4: return new WebpDecoder().read(data);
                     case 5: return new AvifDecoder().read(data);
                 }

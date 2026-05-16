@@ -32,6 +32,27 @@ public class GeneralConfig {
 
     public static ForgeConfigSpec.BooleanValue USE_GPU_RENDERER;
 
+    public static ForgeConfigSpec.EnumValue<RouletteSettingsMode> ROULETTE_SETTINGS_MODE;
+
+    public static ForgeConfigSpec.EnumValue<RouletteMode> ROULETTE_MODE;
+
+    public static ForgeConfigSpec.BooleanValue BLUR_GUI;
+
+    public enum RouletteSettingsMode {
+        MODERN,
+        CLASSIC
+    }
+
+    public enum RouletteMode {
+        MODERN,
+        CLASSIC
+    }
+
+    public static boolean effectiveModernRoulette() {
+        if (ROULETTE_MODE == null || ROULETTE_SETTINGS_MODE == null) return false;
+        return ROULETTE_MODE.get() == RouletteMode.MODERN && ROULETTE_SETTINGS_MODE.get() == RouletteSettingsMode.MODERN;
+    }
+
     public static ForgeConfigSpec buildSpec() {
         ForgeConfigSpec.Builder builder = new ForgeConfigSpec.Builder();
         defineGeneral(builder);
@@ -62,6 +83,12 @@ public class GeneralConfig {
         USE_COMPATIBILITY_RENDERER = builder.define("UseCompatibilityRenderer", false);
         builder.comment("Test renderer.");
         USE_GPU_RENDERER = builder.define("UseGpuRenderer", true);
+        builder.comment("Roulette gear-button behavior: MODERN opens the new OptionScreen-based settings panel with live model preview; CLASSIC keeps the old in-roulette config panel.");
+        ROULETTE_SETTINGS_MODE = builder.defineEnum("RouletteSettingsMode", RouletteSettingsMode.MODERN);
+        builder.comment("Roulette appearance: MODERN renders a centered shader-based pie roulette; CLASSIC keeps the legacy off-center radial layout. MODERN roulette also requires RouletteSettingsMode = MODERN; otherwise it falls back to CLASSIC at runtime.");
+        ROULETTE_MODE = builder.defineEnum("RouletteMode", RouletteMode.CLASSIC);
+        builder.comment("Apply a frosted-glass blur behind YSM GUI panels (roulette and model settings).");
+        BLUR_GUI = builder.define("BlurGui", true);
         builder.comment("The amount of volume when the animation is played.");
         SOUND_VOLUME = builder.defineInRange("SoundVolume", 100.0d, 0.0d, 100.0d);
         builder.comment("Whether to display model ID first in the model selection screen, instead of the model name filled in by the model author.");

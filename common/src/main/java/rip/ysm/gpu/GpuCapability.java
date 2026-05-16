@@ -25,7 +25,7 @@ public final class GpuCapability {
         if (checked) return;
         checked = true;
 
-        if(System.getProperty("OYSM_DISABLE_GPU") != null) {
+        if (System.getProperty("OYSM_DISABLE_GPU") != null) {
             reason = "gpu renderer has been disabled";
             return;
         }
@@ -56,7 +56,7 @@ public final class GpuCapability {
             return;
         }
 
-        if(glVersion == null) {
+        if (glVersion == null) {
             reason = "GL version not available";
             return;
         }

@@ -2,9 +2,9 @@ package com.elfmcys.yesstevemodel.client.input;
 
 import com.elfmcys.yesstevemodel.YesSteveModel;
 import com.elfmcys.yesstevemodel.capability.PlayerCapability;
-import rip.ysm.compat.touhoulittlemaid.TouhouLittleMaidCompat;
 import com.elfmcys.yesstevemodel.client.gui.AnimationRouletteScreen;
 import com.elfmcys.yesstevemodel.client.model.ModelAssembly;
+import com.elfmcys.yesstevemodel.config.GeneralConfig;
 import com.elfmcys.yesstevemodel.config.ServerConfig;
 import com.elfmcys.yesstevemodel.network.NetworkHandler;
 import com.elfmcys.yesstevemodel.util.InputUtil;
@@ -15,6 +15,8 @@ import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
 import rip.ysm.api.PlatformAPI;
 import rip.ysm.api.client.KeyMappingFactory;
+import rip.ysm.compat.touhoulittlemaid.TouhouLittleMaidCompat;
+import rip.ysm.gui.ModernAnimationRouletteScreen;
 
 public final class AnimationRouletteKey {
 
@@ -40,8 +42,12 @@ public final class AnimationRouletteKey {
                             ModelAssembly modelAssembly = cap.getModelAssembly();
                             if (modelAssembly != null && !modelAssembly.getModelData().getModelProperties().getExtraAnimation().isEmpty()) {
                                 if (Minecraft.getInstance().screen == null) {
-                                    Minecraft.getInstance().setScreen(new AnimationRouletteScreen(modelId, modelAssembly, cap));
-                                } else if (Minecraft.getInstance().screen instanceof AnimationRouletteScreen) {
+                                    if (GeneralConfig.effectiveModernRoulette()) {
+                                        Minecraft.getInstance().setScreen(new ModernAnimationRouletteScreen(modelId, modelAssembly, cap));
+                                    } else {
+                                        Minecraft.getInstance().setScreen(new AnimationRouletteScreen(modelId, modelAssembly, cap));
+                                    }
+                                } else if (Minecraft.getInstance().screen instanceof AnimationRouletteScreen || Minecraft.getInstance().screen instanceof ModernAnimationRouletteScreen) {
                                     Minecraft.getInstance().setScreen(null);
                                 }
                             }
