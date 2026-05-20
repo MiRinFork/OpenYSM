@@ -1,58 +1,44 @@
 <div align="center">
-  <img src="images/banner2.png" alt="logo"/>
+  <img src="images/banner.png" alt="logo"/>
   <h1>OpenYSM</h1>
-  <p>YSM开源替代品，基于2.6.5 forge</p>
+  <p>YSM 开源替代品，基于 2.6.5 Forge</p>
+
+  <p>
+    <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green.svg" alt="License"/></a>
+    <a href="https://t.me/NoSteveModel"><img src="https://img.shields.io/badge/Telegram-@NoSteveModel-26A5E4?logo=telegram&logoColor=white" alt="Telegram"/></a>
+  </p>
+
+  <p>
+    <a href="#说明">说明</a> ·
+    <a href="#特性">特性</a> ·
+    <a href="#安装">安装</a> ·
+    <a href="#使用">使用</a> ·
+    <a href="#从源码构建">从源码构建</a> ·
+    <a href="#贡献">贡献</a> ·
+    <a href="#社区">社区</a> ·
+    <a href="#开源协议">开源协议</a>
+  </p>
 </div>
 
 ## 说明
 
-本仓库包含了 YesSteveModel (YSM) 2.6.5（2026年4月）版本的完整源代码。
+OpenYSM 是一款基于 [Yes Steve Model](https://modrinth.com/mod/yes-steve-model) 的模组，它修改了原版玩家模型，其核心使用 [GeckoLib](https://github.com/bernie-g/geckolib) 库，并采用了 Minecraft 基岩版的模型和动画文件。这使得玩家可以根据自己的喜好自定义玩家模型和动画。
 
-包含1.20.1 Forge版本的全部源码。
+本项目基于YSM `2.6.5 Forge`，目标是提供一个完全开源、可自由修改和分发的替代品。
 
-**请注意：项目并非 Production Ready，可能存在命名语义错误，渲染错误等问题，如果您在使用过程中遇到了任何问题请打开 Issue 反馈，最好附带截图和可能的报错日志。**
+## 构建
 
-## 为什么开源？
+```bash
+git clone https://github.com/OpenYSMDev/OpenYSM.git
+cd OpenYSM
+./gradlew build
+```
 
-我们决定将新版 YSM 源码开源，主要基于以下几个原因：
+构建产物位于 `build/libs/` 目录下。
 
-### 1. 新版本的完全重置
+## 贡献
 
-新版 YSM 已经经过完全重新设计和开发，采用了全新的架构和加密方式。
-
-我们认为这个全新的架构和加密方式很酷，因此发布了源代码供大家学习研究和使用。
-
-### 2. 新版加密的现状
-
-此前社区已经出现了一个破解 YSM 2.6.5 及以下版本加密的工具和方法，新版的加密机制实际上已经失去了保护作用。
-
-同时，目前社区中的大部分新模型都已经公布了源文件或者被解密，新版加密已经毫无实际意义。
-
-### 3. 支持开放的游戏氛围
-
-我们注意到社区中没有开发者制作了去除加密功能的最新 YSM 版本，这表明了这是一个蓝海市场。
-
-OpenYSM 开发组一直非常支持开放、自由的游戏开发氛围，我们希望通过开源新版源码，为其他开发者的二次开发和学习提供便利。
-
-## TODO
-
-- [x] Ogg Opus音频解码播放
-- [x] Webp、Avif等纹理的解码
-- [x] 符合YSM标准的服务器客户端通讯握手流程
-- [x] 模型的读取与渲染
-- [x] 子模型动画控制器
-- [x] SIMD加速渲染
-- [x] 与服务器通讯握手时默认模型
-- [x] 低版本二进制模型/未加密模型的兼容性
-- [ ] YSGPHeader生成
-
-## 修改
-
-我们相比已经发布的 YSM 版本做出了以下修改
-
-- 使用 Java 重写了加载和渲染逻辑，现在可以脱离 Native 运行，例如在 MacOS，RISC-V 甚至手机上
-- 支持现有的已加密的 YSM 模型
-- 添加了`/openysm cache dump`命令帮助你调试模型传输，导出服务器中的所有模型
+欢迎任何形式的贡献，包括但不限于提交 Issue、改进文档、修复 Bug、新增功能。
 
 ## 开源协议
 
@@ -60,7 +46,7 @@ OpenYSM 开发组一直非常支持开放、自由的游戏开发氛围，我们
 
 本项目的源代码采用 MIT License 开放，您可以自由地使用、修改和分发代码，仅需要保留原始的版权声明。
 
-详细的许可证条款请参见 LICENSE 文件。
+详细的许可证条款请参见 [LICENSE](LICENSE) 文件。
 
 ### 模型资源协议
 
@@ -70,7 +56,3 @@ OpenYSM 开发组一直非常支持开放、自由的游戏开发氛围，我们
 - 酒狐 (Wine Fox) 模型: 采用 CC BY-NC-SA 4.0 协议，允许非商业使用，需要署名，并且衍生作品需要采用相同协议
 
 请在使用相应模型时严格遵守对应的协议要求。
-
-## 使用建议
-
-我们鼓励开发者基于此源码进行二次开发，创造出更加开放、易用的模型加载工具。
