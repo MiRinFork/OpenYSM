@@ -7,17 +7,6 @@
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green.svg" alt="License"/></a>
     <a href="https://t.me/NoSteveModel"><img src="https://img.shields.io/badge/Telegram-@NoSteveModel-26A5E4?logo=telegram&logoColor=white" alt="Telegram"/></a>
   </p>
-
-  <p>
-    <a href="#说明">说明</a> ·
-    <a href="#特性">特性</a> ·
-    <a href="#安装">安装</a> ·
-    <a href="#使用">使用</a> ·
-    <a href="#从源码构建">从源码构建</a> ·
-    <a href="#贡献">贡献</a> ·
-    <a href="#社区">社区</a> ·
-    <a href="#开源协议">开源协议</a>
-  </p>
 </div>
 
 ## 说明
