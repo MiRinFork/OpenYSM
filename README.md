@@ -1,6 +1,6 @@
 <div align="center">
   <img src="images/banner.png" alt="logo"/>
-  <h1>OpenYSM</h1>
+  <h2>OpenYSM</h2>
   <p>YSM 开源替代品，基于 2.6.5 Forge</p>
 
   <p>
