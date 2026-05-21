@@ -245,7 +245,7 @@ public class ClientModelManager {
         Set<String> validServerModelIds = new HashSet<>();
         List<String> previousModelIds = new ArrayList<>();
         List<String> updatedModelIds = new ArrayList<>();
-        List<Boolean> isModelReadyList = new ArrayList<>();
+        List<Boolean> isAuthList = new ArrayList<>();
 
         for (int i = 0; i < unkSize; i++) {
             long hash1 = buf.readVarLong();
@@ -273,7 +273,7 @@ public class ClientModelManager {
                 if (alreadyInMemory) {
                     previousModelIds.add(modelId);
                     updatedModelIds.add(modelId);
-                    isModelReadyList.add(isAuth);
+                    isAuthList.add(isAuth);
                 } else {
                     // 命中缓存
                     modelPhraseExecutor.submit(() -> {
@@ -352,16 +352,16 @@ public class ClientModelManager {
         }
 
         if (!modelsToRemove.isEmpty() || !previousModelIds.isEmpty()) {
-            boolean[] readyArr = new boolean[isModelReadyList.size()];
-            for (int j = 0; j < isModelReadyList.size(); j++) {
-                readyArr[j] = isModelReadyList.get(j);
+            boolean[] authArr = new boolean[isAuthList.size()];
+            for (int j = 0; j < isAuthList.size(); j++) {
+                authArr[j] = isAuthList.get(j);
             }
 
             onModelContextsUpdated(
                     modelsToRemove.isEmpty() ? null : modelsToRemove.toArray(new String[0]),
                     previousModelIds.isEmpty() ? null : previousModelIds.toArray(new String[0]),
                     updatedModelIds.isEmpty() ? null : updatedModelIds.toArray(new String[0]),
-                    readyArr
+                    authArr
             );
             YesSteveModel.LOGGER.info("[YSM] Cleaned up {} outdated models and updated {} existing models during sync.", modelsToRemove.size(), previousModelIds.size());
         }
@@ -712,7 +712,7 @@ public class ClientModelManager {
         modelPackMap = newPackMap;
     }
 
-    private static void onModelContextsUpdated(String[] removedModelIds, String[] previousModelIds, String[] updatedModelIds, boolean[] isModelReady) {
+    private static void onModelContextsUpdated(String[] removedModelIds, String[] previousModelIds, String[] updatedModelIds, boolean[] isAuthArr) {
         Minecraft.getInstance().execute(() -> {
             Object2ReferenceOpenHashMap<String, ModelAssembly> map = new Object2ReferenceOpenHashMap<>(modelAssemblyMap);
             if (removedModelIds != null) {
@@ -748,7 +748,7 @@ public class ClientModelManager {
                 for (int i = 0; i < modelAssemblies.length; i++) {
                     ModelAssembly modelAssembly = modelAssemblies[i];
                     if (modelAssembly != null) {
-                        modelAssembly.getTextureRegistry().setAuthModel(isModelReady[i]);
+                        modelAssembly.getTextureRegistry().setAuthModel(isAuthArr[i]);
                         map.put(updatedModelIds[i], modelAssembly);
                     }
                 }

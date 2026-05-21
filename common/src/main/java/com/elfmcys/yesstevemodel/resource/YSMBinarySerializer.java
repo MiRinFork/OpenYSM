@@ -133,8 +133,15 @@ public class YSMBinarySerializer {
             buf.writeString(sub.model != null && sub.model.sha256 != null ? sub.model.sha256 : "");
             writeGeometry(buf, sub.model, format);
             if (format > 26) {
-                buf.writeVarInt(0x01); // footer
-                buf.writeString(sub.identifier);
+                if (sub.matchIds != null && sub.matchIds.length > 0) {
+                    buf.writeVarInt(sub.matchIds.length);
+                    for (String matchId : sub.matchIds) {
+                        buf.writeString(matchId != null ? matchId : "");
+                    }
+                } else {
+                    buf.writeVarInt(1); 
+                    buf.writeString(sub.identifier != null ? sub.identifier : "");
+                }
             }
             index++;
         }
@@ -282,14 +289,14 @@ public class YSMBinarySerializer {
 
                 // animations
                 buf.writeVarInt(state.animations.size());
-                for (Map.Entry<String, String> e : state.animations.entrySet()) {
+                for (Map.Entry<String, String> e : state.animations) {
                     buf.writeString(e.getKey());
                     buf.writeString(e.getValue());
                 }
 
                 // transitions
                 buf.writeVarInt(state.transitions.size());
-                for (Map.Entry<String, String> e : state.transitions.entrySet()) {
+                for (Map.Entry<String, String> e : state.transitions) {
                     buf.writeString(e.getKey());
                     buf.writeString(e.getValue());
                 }

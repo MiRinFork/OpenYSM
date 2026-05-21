@@ -4,10 +4,7 @@ import com.elfmcys.yesstevemodel.resource.pojo.RawYsmModel;
 import io.netty.buffer.Unpooled;
 import rip.ysm.security.YSMByteBuf;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 public class YSMBinaryDeserializer implements AutoCloseable{
 
@@ -464,9 +461,15 @@ public class YSMBinaryDeserializer implements AutoCloseable{
 
 
         if (format > 26) {
-            int footerFlag = reader.readVarInt(); // always 01
-            String footerSubModuleName = reader.readString();
-            subEntity.identifier = footerSubModuleName;
+            int matchIdSize = reader.readVarInt(); 
+            subEntity.matchIds = new String[matchIdSize];
+            for (int j = 0; j < matchIdSize; j++) {
+                subEntity.matchIds[j] = reader.readString();
+            }
+
+            if (matchIdSize > 0) {
+                subEntity.identifier = subEntity.matchIds[0];
+            }
         }
 
         targetMap.put(subEntity.identifier, subEntity);
@@ -838,12 +841,12 @@ public class YSMBinaryDeserializer implements AutoCloseable{
                 // animations
                 int animationsSize = reader.readVarInt();
                 for (int j = 0; j < animationsSize; j++) {
-                    state.animations.put(reader.readString(), reader.readString());
+                    state.animations.add(new AbstractMap.SimpleEntry<>(reader.readString(), reader.readString()));
                 }
                 // transitions
                 int transitionsSize = reader.readVarInt();
                 for (int j = 0; j < transitionsSize; j++) {
-                    state.transitions.put(reader.readString(), reader.readString());
+                    state.transitions.add(new AbstractMap.SimpleEntry<>(reader.readString(), reader.readString()));
                 }
                 // on_entry
                 int onEntryCount = reader.readVarInt();

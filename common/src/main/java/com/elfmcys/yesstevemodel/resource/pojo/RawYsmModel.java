@@ -179,8 +179,8 @@ public class RawYsmModel {
 
     public static class RawControllerState {
         public String name;
-        public Map<String, String> animations = new LinkedHashMap<>();
-        public Map<String, String> transitions = new LinkedHashMap<>();
+        public List<Map.Entry<String, String>> animations = new ArrayList<>();
+        public List<Map.Entry<String, String>> transitions = new ArrayList<>();
         public List<String> onEntry = new ArrayList<>();
         public List<String> onExit = new ArrayList<>();
         public List<String> soundEffects = new ArrayList<>();
