@@ -63,28 +63,45 @@ public class YSMClientMapper {
 
     public static class TranslucencyScanner {
         private final BufferedImage[] images;
+        private final int[] widths;
+        private final int[] heights;
+        // 直接持有 BufferedImage 底层 DataBuffer 的 int[]/byte[]（零拷贝），
+        // 仅当图像是已知排布（TYPE_INT_ARGB[_PRE] 或 TYPE_4BYTE_ABGR[_PRE]，
+        // 且 DataBuffer offset 为 0）时设置。其他类型保持 null，scan() 走原 getRGB 回落路径。
+        private final int[][] intPixels;
+        private final byte[][] bytePixels;
         private final boolean[] results;
-//        private int remaining;
 
         public static final int STATE_INVISIBLE = 0;
         public static final int STATE_OPAQUE = 1;
         public static final int STATE_TRANSLUCENT = 2;
 
         public TranslucencyScanner(BufferedImage[] images, int expectedCount) {
+            int n = images.length;
             this.images = images;
-            this.results = new boolean[Math.max(expectedCount, images.length)];
-//            this.remaining = images.length;
-//
-//            for (BufferedImage image : images) {
-//                if (image == null) {
-//                    remaining--;
-//                }
-//            }
+            this.widths = new int[n];
+            this.heights = new int[n];
+            this.intPixels = new int[n][];
+            this.bytePixels = new byte[n][];
+            for (int i = 0; i < n; i++) {
+                BufferedImage img = images[i];
+                if (img == null) continue;
+                widths[i] = img.getWidth();
+                heights[i] = img.getHeight();
+                int t = img.getType();
+                java.awt.image.DataBuffer buf = img.getRaster().getDataBuffer();
+                if ((t == BufferedImage.TYPE_INT_ARGB || t == BufferedImage.TYPE_INT_ARGB_PRE)
+                        && buf instanceof java.awt.image.DataBufferInt
+                        && buf.getOffset() == 0) {
+                    intPixels[i] = ((java.awt.image.DataBufferInt) buf).getData();
+                } else if ((t == BufferedImage.TYPE_4BYTE_ABGR || t == BufferedImage.TYPE_4BYTE_ABGR_PRE)
+                        && buf instanceof java.awt.image.DataBufferByte
+                        && buf.getOffset() == 0) {
+                    bytePixels[i] = ((java.awt.image.DataBufferByte) buf).getData();
+                }
+            }
+            this.results = new boolean[Math.max(expectedCount, n)];
         }
-
-//        public boolean isFinished() {
-//            return remaining <= 0;
-//        }
 
         public boolean[] getResults() {
             return results;
@@ -105,12 +122,12 @@ public class YSMClientMapper {
             boolean faceHasTransparentPixel = false;
 
             for (int i = 0; i < images.length; i++) {
-                if (images[i] == null) continue;
+                BufferedImage img = images[i];
+                if (img == null) continue;
                 hasValidImage = true;
 
-                BufferedImage img = images[i];
-                int imgW = img.getWidth();
-                int imgH = img.getHeight();
+                int imgW = widths[i];
+                int imgH = heights[i];
 
                 int startX = (int) Math.floor(minU * imgW + 0.01f);
                 int endX = (int) Math.floor(maxU * imgW - 0.01f);
@@ -129,39 +146,59 @@ public class YSMClientMapper {
                 boolean imageHasTransparentPixel = false;
                 boolean imageHasColoredTranslucentPixel = false;
 
-                for (int x = startX; x <= endX; x++) {
-                    for (int y = startY; y <= endY; y++) {
-                        int alpha = (img.getRGB(x, y) >>> 24) & 0xFF;
+                int[] intData = intPixels[i];
+                byte[] byteData = bytePixels[i];
 
-                        if (alpha > 0) {
-                            imageHasVisiblePixel = true;
-
-                            if (alpha < 255) {
-                                imageHasColoredTranslucentPixel = true;
+                scan: {
+                    if (intData != null) {
+                        // TYPE_INT_ARGB: alpha = (pixel >>> 24) & 0xFF
+                        for (int y = startY; y <= endY; y++) {
+                            int row = y * imgW;
+                            for (int x = startX; x <= endX; x++) {
+                                int alpha = (intData[row + x] >>> 24) & 0xFF;
+                                if (alpha > 0) {
+                                    imageHasVisiblePixel = true;
+                                    if (alpha < 255) imageHasColoredTranslucentPixel = true;
+                                }
+                                if (alpha < 255) imageHasTransparentPixel = true;
+                                if (imageHasVisiblePixel && imageHasTransparentPixel && imageHasColoredTranslucentPixel) break scan;
                             }
                         }
-
-                        if (alpha < 255) {
-                            imageHasTransparentPixel = true;
+                    } else if (byteData != null) {
+                        // TYPE_4BYTE_ABGR: 字节序 A,B,G,R 交错；alpha 在每像素首字节
+                        for (int y = startY; y <= endY; y++) {
+                            int row = y * imgW * 4;
+                            for (int x = startX; x <= endX; x++) {
+                                int alpha = byteData[row + x * 4] & 0xFF;
+                                if (alpha > 0) {
+                                    imageHasVisiblePixel = true;
+                                    if (alpha < 255) imageHasColoredTranslucentPixel = true;
+                                }
+                                if (alpha < 255) imageHasTransparentPixel = true;
+                                if (imageHasVisiblePixel && imageHasTransparentPixel && imageHasColoredTranslucentPixel) break scan;
+                            }
                         }
-
-                        if (imageHasVisiblePixel && imageHasTransparentPixel && imageHasColoredTranslucentPixel) {
-                            break;
+                    } else {
+                        // Fallback：未知 BufferedImage 类型，沿用原 getRGB(x,y) 逐像素
+                        for (int x = startX; x <= endX; x++) {
+                            for (int y = startY; y <= endY; y++) {
+                                int alpha = (img.getRGB(x, y) >>> 24) & 0xFF;
+                                if (alpha > 0) {
+                                    imageHasVisiblePixel = true;
+                                    if (alpha < 255) imageHasColoredTranslucentPixel = true;
+                                }
+                                if (alpha < 255) imageHasTransparentPixel = true;
+                                if (imageHasVisiblePixel && imageHasTransparentPixel && imageHasColoredTranslucentPixel) break scan;
+                            }
                         }
-                    }
-
-                    if (imageHasVisiblePixel && imageHasTransparentPixel && imageHasColoredTranslucentPixel) {
-                        break;
                     }
                 }
 
                 if (imageHasVisiblePixel) {
                     faceHasVisiblePixel = true;
-
                     if (imageHasTransparentPixel) {
                         faceHasTransparentPixel = true;
                     }
-
                     if (imageHasColoredTranslucentPixel) {
                         results[i] = true;
                     }
