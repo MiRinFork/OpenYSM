@@ -62,14 +62,7 @@ import java.util.stream.IntStream;
 public class YSMClientMapper {
 
     public static class TranslucencyScanner {
-        private final BufferedImage[] images;
-        private final int[] widths;
-        private final int[] heights;
-        // 直接持有 BufferedImage 底层 DataBuffer 的 int[]/byte[]（零拷贝），
-        // 仅当图像是已知排布（TYPE_INT_ARGB[_PRE] 或 TYPE_4BYTE_ABGR[_PRE]，
-        // 且 DataBuffer offset 为 0）时设置。其他类型保持 null，scan() 走原 getRGB 回落路径。
-        private final int[][] intPixels;
-        private final byte[][] bytePixels;
+        private final TranslucencyAtlas atlas;
         private final boolean[] results;
 
         public static final int STATE_INVISIBLE = 0;
@@ -77,30 +70,12 @@ public class YSMClientMapper {
         public static final int STATE_TRANSLUCENT = 2;
 
         public TranslucencyScanner(BufferedImage[] images, int expectedCount) {
-            int n = images.length;
-            this.images = images;
-            this.widths = new int[n];
-            this.heights = new int[n];
-            this.intPixels = new int[n][];
-            this.bytePixels = new byte[n][];
-            for (int i = 0; i < n; i++) {
-                BufferedImage img = images[i];
-                if (img == null) continue;
-                widths[i] = img.getWidth();
-                heights[i] = img.getHeight();
-                int t = img.getType();
-                java.awt.image.DataBuffer buf = img.getRaster().getDataBuffer();
-                if ((t == BufferedImage.TYPE_INT_ARGB || t == BufferedImage.TYPE_INT_ARGB_PRE)
-                        && buf instanceof java.awt.image.DataBufferInt
-                        && buf.getOffset() == 0) {
-                    intPixels[i] = ((java.awt.image.DataBufferInt) buf).getData();
-                } else if ((t == BufferedImage.TYPE_4BYTE_ABGR || t == BufferedImage.TYPE_4BYTE_ABGR_PRE)
-                        && buf instanceof java.awt.image.DataBufferByte
-                        && buf.getOffset() == 0) {
-                    bytePixels[i] = ((java.awt.image.DataBufferByte) buf).getData();
-                }
-            }
-            this.results = new boolean[Math.max(expectedCount, n)];
+            this(new TranslucencyAtlas(images), expectedCount);
+        }
+
+        private TranslucencyScanner(TranslucencyAtlas atlas, int expectedCount) {
+            this.atlas = atlas;
+            this.results = new boolean[Math.max(expectedCount, atlas.size())];
         }
 
         public boolean[] getResults() {
@@ -121,13 +96,13 @@ public class YSMClientMapper {
             boolean faceHasVisiblePixel = false;
             boolean faceHasTransparentPixel = false;
 
-            for (int i = 0; i < images.length; i++) {
-                BufferedImage img = images[i];
-                if (img == null) continue;
+            for (int i = 0; i < atlas.size(); i++) {
+                AlphaIndex index = atlas.get(i);
+                if (index == null) continue;
                 hasValidImage = true;
 
-                int imgW = widths[i];
-                int imgH = heights[i];
+                int imgW = index.width;
+                int imgH = index.height;
 
                 int startX = (int) Math.floor(minU * imgW + 0.01f);
                 int endX = (int) Math.floor(maxU * imgW - 0.01f);
@@ -142,64 +117,14 @@ public class YSMClientMapper {
                 startY = Math.max(0, Math.min(startY, imgH - 1));
                 endY = Math.max(0, Math.min(endY, imgH - 1));
 
-                boolean imageHasVisiblePixel = false;
-                boolean imageHasTransparentPixel = false;
-                boolean imageHasColoredTranslucentPixel = false;
+                AlphaScanResult scanResult = index.scan(startX, endX, startY, endY);
 
-                int[] intData = intPixels[i];
-                byte[] byteData = bytePixels[i];
-
-                scan: {
-                    if (intData != null) {
-                        // TYPE_INT_ARGB: alpha = (pixel >>> 24) & 0xFF
-                        for (int y = startY; y <= endY; y++) {
-                            int row = y * imgW;
-                            for (int x = startX; x <= endX; x++) {
-                                int alpha = (intData[row + x] >>> 24) & 0xFF;
-                                if (alpha > 0) {
-                                    imageHasVisiblePixel = true;
-                                    if (alpha < 255) imageHasColoredTranslucentPixel = true;
-                                }
-                                if (alpha < 255) imageHasTransparentPixel = true;
-                                if (imageHasVisiblePixel && imageHasTransparentPixel && imageHasColoredTranslucentPixel) break scan;
-                            }
-                        }
-                    } else if (byteData != null) {
-                        // TYPE_4BYTE_ABGR: 字节序 A,B,G,R 交错；alpha 在每像素首字节
-                        for (int y = startY; y <= endY; y++) {
-                            int row = y * imgW * 4;
-                            for (int x = startX; x <= endX; x++) {
-                                int alpha = byteData[row + x * 4] & 0xFF;
-                                if (alpha > 0) {
-                                    imageHasVisiblePixel = true;
-                                    if (alpha < 255) imageHasColoredTranslucentPixel = true;
-                                }
-                                if (alpha < 255) imageHasTransparentPixel = true;
-                                if (imageHasVisiblePixel && imageHasTransparentPixel && imageHasColoredTranslucentPixel) break scan;
-                            }
-                        }
-                    } else {
-                        // Fallback：未知 BufferedImage 类型，沿用原 getRGB(x,y) 逐像素
-                        for (int x = startX; x <= endX; x++) {
-                            for (int y = startY; y <= endY; y++) {
-                                int alpha = (img.getRGB(x, y) >>> 24) & 0xFF;
-                                if (alpha > 0) {
-                                    imageHasVisiblePixel = true;
-                                    if (alpha < 255) imageHasColoredTranslucentPixel = true;
-                                }
-                                if (alpha < 255) imageHasTransparentPixel = true;
-                                if (imageHasVisiblePixel && imageHasTransparentPixel && imageHasColoredTranslucentPixel) break scan;
-                            }
-                        }
-                    }
-                }
-
-                if (imageHasVisiblePixel) {
+                if (scanResult.hasVisiblePixel) {
                     faceHasVisiblePixel = true;
-                    if (imageHasTransparentPixel) {
+                    if (scanResult.hasTransparentPixel) {
                         faceHasTransparentPixel = true;
                     }
-                    if (imageHasColoredTranslucentPixel) {
+                    if (scanResult.hasColoredTranslucentPixel) {
                         results[i] = true;
                     }
                 }
@@ -209,6 +134,254 @@ public class YSMClientMapper {
             if (!faceHasVisiblePixel) return STATE_INVISIBLE;
             if (faceHasTransparentPixel) return STATE_TRANSLUCENT;
             return STATE_OPAQUE;
+        }
+    }
+
+    private static class TranslucencyAtlas {
+        private final AlphaIndex[] indexes;
+
+        TranslucencyAtlas(BufferedImage[] images) {
+            this.indexes = new AlphaIndex[images.length];
+            for (int i = 0; i < images.length; i++) {
+                BufferedImage image = images[i];
+                if (image != null) {
+                    indexes[i] = new AlphaIndex(image);
+                }
+            }
+        }
+
+        int size() {
+            return indexes.length;
+        }
+
+        AlphaIndex get(int index) {
+            return indexes[index];
+        }
+    }
+
+    private static class AlphaIndex {
+        // Prefix sums are only worth their full-image build cost after repeated
+        // scans. The current model corpus regresses when this threshold is lower.
+        private static final long PREFIX_BUILD_AREA_MULTIPLIER = 8L;
+
+        private final BufferedImage image;
+        final int width;
+        final int height;
+        private final int stride;
+        private final int[] intPixels;
+        private final int intBaseOffset;
+        private final int intScanlineStride;
+        private final byte[] bytePixels;
+        private final int byteAlphaOffset;
+        private final int bytePixelStride;
+        private final int byteScanlineStride;
+        private long directScanArea;
+        private int[] visible;
+        private int[] transparent;
+        private int[] coloredTranslucent;
+
+        AlphaIndex(BufferedImage image) {
+            this.image = image;
+            this.width = image.getWidth();
+            this.height = image.getHeight();
+            this.stride = width + 1;
+
+            java.awt.image.Raster raster = image.getRaster();
+            java.awt.image.SampleModel sampleModel = raster.getSampleModel();
+            java.awt.image.DataBuffer buffer = raster.getDataBuffer();
+
+            int[] resolvedIntPixels = null;
+            int resolvedIntBaseOffset = 0;
+            int resolvedIntScanlineStride = 0;
+            byte[] resolvedBytePixels = null;
+            int resolvedByteAlphaOffset = 0;
+            int resolvedBytePixelStride = 0;
+            int resolvedByteScanlineStride = 0;
+
+            if ((image.getType() == BufferedImage.TYPE_INT_ARGB || image.getType() == BufferedImage.TYPE_INT_ARGB_PRE)
+                    && sampleModel instanceof java.awt.image.SinglePixelPackedSampleModel
+                    && buffer instanceof java.awt.image.DataBufferInt
+                    && buffer.getNumBanks() == 1) {
+                java.awt.image.SinglePixelPackedSampleModel sm = (java.awt.image.SinglePixelPackedSampleModel) sampleModel;
+                java.awt.image.DataBufferInt db = (java.awt.image.DataBufferInt) buffer;
+                int baseOffset = db.getOffset() + sm.getOffset(-raster.getSampleModelTranslateX(), -raster.getSampleModelTranslateY());
+                int scanlineStride = sm.getScanlineStride();
+                int lastOffset = baseOffset + (height - 1) * scanlineStride + (width - 1);
+                int[] data = db.getData();
+                if (baseOffset >= 0 && scanlineStride > 0 && lastOffset < data.length) {
+                    resolvedIntPixels = data;
+                    resolvedIntBaseOffset = baseOffset;
+                    resolvedIntScanlineStride = scanlineStride;
+                }
+            } else if ((image.getType() == BufferedImage.TYPE_4BYTE_ABGR || image.getType() == BufferedImage.TYPE_4BYTE_ABGR_PRE)
+                    && sampleModel instanceof java.awt.image.ComponentSampleModel
+                    && buffer instanceof java.awt.image.DataBufferByte
+                    && buffer.getNumBanks() == 1) {
+                java.awt.image.ComponentSampleModel sm = (java.awt.image.ComponentSampleModel) sampleModel;
+                java.awt.image.DataBufferByte db = (java.awt.image.DataBufferByte) buffer;
+                int[] bandOffsets = sm.getBandOffsets();
+                if (bandOffsets.length >= 4) {
+                    int pixelBaseOffset = db.getOffset()
+                            + sm.getOffset(-raster.getSampleModelTranslateX(), -raster.getSampleModelTranslateY())
+                            - bandOffsets[0];
+                    int alphaOffset = pixelBaseOffset + bandOffsets[3];
+                    int pixelStride = sm.getPixelStride();
+                    int scanlineStride = sm.getScanlineStride();
+                    int lastOffset = alphaOffset + (height - 1) * scanlineStride + (width - 1) * pixelStride;
+                    byte[] data = db.getData();
+                    if (alphaOffset >= 0 && lastOffset < data.length && pixelStride > 0 && scanlineStride > 0) {
+                        resolvedBytePixels = data;
+                        resolvedByteAlphaOffset = alphaOffset;
+                        resolvedBytePixelStride = pixelStride;
+                        resolvedByteScanlineStride = scanlineStride;
+                    }
+                }
+            }
+
+            this.intPixels = resolvedIntPixels;
+            this.intBaseOffset = resolvedIntBaseOffset;
+            this.intScanlineStride = resolvedIntScanlineStride;
+            this.bytePixels = resolvedBytePixels;
+            this.byteAlphaOffset = resolvedByteAlphaOffset;
+            this.bytePixelStride = resolvedBytePixelStride;
+            this.byteScanlineStride = resolvedByteScanlineStride;
+        }
+
+        AlphaScanResult scan(int startX, int endX, int startY, int endY) {
+            if (visible != null) {
+                return scanPrefix(startX, endX, startY, endY);
+            }
+
+            long area = (long) (endX - startX + 1) * (long) (endY - startY + 1);
+            directScanArea += area;
+            if (directScanArea >= (long) width * (long) height * PREFIX_BUILD_AREA_MULTIPLIER) {
+                buildPrefix();
+                return scanPrefix(startX, endX, startY, endY);
+            }
+
+            return scanDirect(startX, endX, startY, endY);
+        }
+
+        private AlphaScanResult scanPrefix(int startX, int endX, int startY, int endY) {
+            return new AlphaScanResult(
+                    sum(visible, startX, endX, startY, endY) > 0,
+                    sum(transparent, startX, endX, startY, endY) > 0,
+                    sum(coloredTranslucent, startX, endX, startY, endY) > 0
+            );
+        }
+
+        private AlphaScanResult scanDirect(int startX, int endX, int startY, int endY) {
+            boolean imageHasVisiblePixel = false;
+            boolean imageHasTransparentPixel = false;
+            boolean imageHasColoredTranslucentPixel = false;
+
+            scan:
+            if (intPixels != null) {
+                for (int y = startY; y <= endY; y++) {
+                    int row = intBaseOffset + y * intScanlineStride;
+                    for (int x = startX; x <= endX; x++) {
+                        int alpha = (intPixels[row + x] >>> 24) & 0xFF;
+                        if (alpha > 0) {
+                            imageHasVisiblePixel = true;
+                            if (alpha < 255) imageHasColoredTranslucentPixel = true;
+                        }
+                        if (alpha < 255) imageHasTransparentPixel = true;
+                        if (imageHasVisiblePixel && imageHasTransparentPixel && imageHasColoredTranslucentPixel) break scan;
+                    }
+                }
+            } else if (bytePixels != null) {
+                for (int y = startY; y <= endY; y++) {
+                    int row = byteAlphaOffset + y * byteScanlineStride;
+                    for (int x = startX; x <= endX; x++) {
+                        int alpha = bytePixels[row + x * bytePixelStride] & 0xFF;
+                        if (alpha > 0) {
+                            imageHasVisiblePixel = true;
+                            if (alpha < 255) imageHasColoredTranslucentPixel = true;
+                        }
+                        if (alpha < 255) imageHasTransparentPixel = true;
+                        if (imageHasVisiblePixel && imageHasTransparentPixel && imageHasColoredTranslucentPixel) break scan;
+                    }
+                }
+            } else {
+                for (int x = startX; x <= endX; x++) {
+                    for (int y = startY; y <= endY; y++) {
+                        int alpha = (image.getRGB(x, y) >>> 24) & 0xFF;
+                        if (alpha > 0) {
+                            imageHasVisiblePixel = true;
+                            if (alpha < 255) imageHasColoredTranslucentPixel = true;
+                        }
+                        if (alpha < 255) imageHasTransparentPixel = true;
+                        if (imageHasVisiblePixel && imageHasTransparentPixel && imageHasColoredTranslucentPixel) break scan;
+                    }
+                }
+            }
+
+            return new AlphaScanResult(imageHasVisiblePixel, imageHasTransparentPixel, imageHasColoredTranslucentPixel);
+        }
+
+        private void buildPrefix() {
+            int size = stride * (height + 1);
+            visible = new int[size];
+            transparent = new int[size];
+            coloredTranslucent = new int[size];
+            int[] rowPixels = intPixels == null && bytePixels == null ? new int[width] : null;
+
+            for (int y = 0; y < height; y++) {
+                if (rowPixels != null) {
+                    image.getRGB(0, y, width, 1, rowPixels, 0, width);
+                }
+                int row = (y + 1) * stride;
+                int previousRow = y * stride;
+                int visibleRunning = 0;
+                int transparentRunning = 0;
+                int coloredTranslucentRunning = 0;
+                int intRow = intBaseOffset + y * intScanlineStride;
+                int byteRow = byteAlphaOffset + y * byteScanlineStride;
+
+                for (int x = 0; x < width; x++) {
+                    int alpha;
+                    if (intPixels != null) {
+                        alpha = (intPixels[intRow + x] >>> 24) & 0xFF;
+                    } else if (bytePixels != null) {
+                        alpha = bytePixels[byteRow + x * bytePixelStride] & 0xFF;
+                    } else {
+                        alpha = (rowPixels[x] >>> 24) & 0xFF;
+                    }
+
+                    if (alpha > 0) visibleRunning++;
+                    if (alpha < 255) transparentRunning++;
+                    if (alpha > 0 && alpha < 255) coloredTranslucentRunning++;
+
+                    int idx = row + x + 1;
+                    int above = previousRow + x + 1;
+                    visible[idx] = visible[above] + visibleRunning;
+                    transparent[idx] = transparent[above] + transparentRunning;
+                    coloredTranslucent[idx] = coloredTranslucent[above] + coloredTranslucentRunning;
+                }
+            }
+        }
+
+        private int sum(int[] prefix, int startX, int endX, int startY, int endY) {
+            int x1 = startX;
+            int y1 = startY;
+            int x2 = endX + 1;
+            int y2 = endY + 1;
+            return prefix[y2 * stride + x2]
+                    - prefix[y1 * stride + x2]
+                    - prefix[y2 * stride + x1]
+                    + prefix[y1 * stride + x1];
+        }
+    }
+
+    private static class AlphaScanResult {
+        final boolean hasVisiblePixel;
+        final boolean hasTransparentPixel;
+        final boolean hasColoredTranslucentPixel;
+
+        AlphaScanResult(boolean hasVisiblePixel, boolean hasTransparentPixel, boolean hasColoredTranslucentPixel) {
+            this.hasVisiblePixel = hasVisiblePixel;
+            this.hasTransparentPixel = hasTransparentPixel;
+            this.hasColoredTranslucentPixel = hasColoredTranslucentPixel;
         }
     }
 
@@ -226,9 +399,9 @@ public class YSMClientMapper {
 
         try {
             if (imageFormat == -1) {
-                if (width > 0 && height > 0 && data.length >= width * height * 4) {
+                if (width > 0 && height > 0 && data.length >= (long) width * height * 4L) {
                     BufferedImage img = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
-                    int[] pixels = new int[width * height];
+                    int[] pixels = ((java.awt.image.DataBufferInt) img.getRaster().getDataBuffer()).getData();
                     for (int i = 0; i < pixels.length; i++) {
                         int r = data[i * 4] & 0xFF;
                         int g = data[i * 4 + 1] & 0xFF;
@@ -236,7 +409,6 @@ public class YSMClientMapper {
                         int a = data[i * 4 + 3] & 0xFF;
                         pixels[i] = (a << 24) | (r << 16) | (g << 8) | b;
                     }
-                    img.setRGB(0, 0, width, height, pixels, 0, width);
                     return img;
                 } else throw new RuntimeException("Invalid RGBA texture");
             } else {
@@ -276,6 +448,30 @@ public class YSMClientMapper {
         return encodeToPng(img, data);
     }
 
+    private static OuterFileTexture buildTexture(byte[] data, int imageFormat, int width, int height) {
+        return buildTexture(data, imageFormat, width, height, null);
+    }
+
+    private static OuterFileTexture buildTexture(byte[] data, int imageFormat, int width, int height, BufferedImage decodedImage) {
+        if (data == null || data.length == 0) {
+            return new OuterFileTexture(data);
+        }
+        if (imageFormat == -1 && width > 0 && height > 0 && data.length >= (long) width * height * 4L) {
+            return new OuterFileTexture(data, width, height);
+        }
+
+        int resolvedFormat = imageFormat;
+        if (resolvedFormat == 0) {
+            resolvedFormat = YSMFolderDeserializer.detectFormat(data);
+        }
+        if (resolvedFormat == 1 || resolvedFormat == 2 || resolvedFormat == 3) {
+            return new OuterFileTexture(data);
+        }
+
+        BufferedImage img = decodedImage != null ? decodedImage : decodeToImage(data, imageFormat, width, height);
+        return new OuterFileTexture(encodeToPng(img, data));
+    }
+
     public static ClientModelInfo buildParsedBundle(RawYsmModel raw, String modelId) {
         Map<String, OuterFileTexture> mainTextures = new LinkedHashMap<>();
         int textureCount = Math.max(1, raw.mainEntity.textures.size());
@@ -286,17 +482,15 @@ public class YSMClientMapper {
             BufferedImage img = decodeToImage(rt.data, rt.imageFormat, rt.width, rt.height);
             imagesList.add(img);
 
-            byte[] processedData = (rt.imageFormat == 2) ? rt.data : encodeToPng(img, rt.data);
-            OuterFileTexture tex = new OuterFileTexture(processedData);
+            OuterFileTexture tex = buildTexture(rt.data, rt.imageFormat, rt.width, rt.height, img);
 
             Map<ShadersTextureType, OuterFileTexture> suffixTextures = new LinkedHashMap<>();
             for (RawYsmModel.RawTexture.SubTexture sub : rt.subTextures) {
                 if (sub.data == null) continue;
-                byte[] processedSubData = toPng(sub.data, sub.imageFormat, sub.width, sub.height);
                 if (sub.specularType == 1) {
-                    suffixTextures.put(ShadersTextureType.NORMAL, new OuterFileTexture(processedSubData));
+                    suffixTextures.put(ShadersTextureType.NORMAL, buildTexture(sub.data, sub.imageFormat, sub.width, sub.height));
                 } else if (sub.specularType == 2) {
-                    suffixTextures.put(ShadersTextureType.SPECULAR, new OuterFileTexture(processedSubData));
+                    suffixTextures.put(ShadersTextureType.SPECULAR, buildTexture(sub.data, sub.imageFormat, sub.width, sub.height));
                 }
             }
             tex.setSuffixTextures(suffixTextures);
@@ -305,8 +499,7 @@ public class YSMClientMapper {
         Map<String, OuterFileTexture> avatarTextures = new LinkedHashMap<>();
         for (RawYsmModel.RawMetadata.Author author : raw.metadata.authors) {
             if (author.avatarImage == null) continue;
-            byte[] processedAvatarData = toPng(author.avatarImage.data, author.avatarImage.format, author.avatarImage.width, author.avatarImage.height);
-            OuterFileTexture tex = new OuterFileTexture(processedAvatarData);
+            OuterFileTexture tex = buildTexture(author.avatarImage.data, author.avatarImage.format, author.avatarImage.width, author.avatarImage.height);
             avatarTextures.put(author.avatarImage.name, tex);
         }
         OrderedStringMap<String, OuterFileTexture> textureMap = buildTextureMap(mainTextures);
@@ -314,10 +507,11 @@ public class YSMClientMapper {
         GeometryDescription context = buildContext(raw.mainEntity.mainModel);
 
         BufferedImage[] imagesArray = imagesList.toArray(new BufferedImage[0]);
+        TranslucencyAtlas mainAtlas = new TranslucencyAtlas(imagesArray);
         TranslucencyScanner mainScanner = raw.mainEntity.mainModel != null ?
-                new TranslucencyScanner(imagesArray, textureCount) : null;
+                new TranslucencyScanner(mainAtlas, textureCount) : null;
         TranslucencyScanner armScanner = raw.mainEntity.armModel != null ?
-                new TranslucencyScanner(imagesArray, textureCount) : null;
+                new TranslucencyScanner(mainAtlas, textureCount) : null;
 
         GeoModel mainMesh = buildMesh(raw.mainEntity.mainModel, context, textureCount, mainScanner, raw.properties.allCutout);
         GeoModel armMesh = raw.mainEntity.armModel != null ? buildMesh(raw.mainEntity.armModel, context, textureCount, armScanner, raw.properties.allCutout) : mainMesh;
@@ -789,9 +983,8 @@ public class YSMClientMapper {
             for(RawYsmModel.RawTexture rt : sub.textures.values()) {
                 BufferedImage img = decodeToImage(rt.data, rt.imageFormat, rt.width, rt.height);
                 imgList.add(img);
-                byte[] processedData = (rt.imageFormat == 2) ? rt.data : encodeToPng(img, rt.data);
                 if (texture == null) {
-                    texture = new OuterFileTexture(processedData);
+                    texture = buildTexture(rt.data, rt.imageFormat, rt.width, rt.height, img);
                 }
             }
             if (sub.model != null) {
@@ -831,9 +1024,8 @@ public class YSMClientMapper {
             for(RawYsmModel.RawTexture rt : sub.textures.values()) {
                 BufferedImage img = decodeToImage(rt.data, rt.imageFormat, rt.width, rt.height);
                 imgList.add(img);
-                byte[] processedData = (rt.imageFormat == 2) ? rt.data : encodeToPng(img, rt.data);
                 if (texture == null) {
-                    texture = new OuterFileTexture(processedData);
+                    texture = buildTexture(rt.data, rt.imageFormat, rt.width, rt.height, img);
                 }
             }
             if (sub.model != null) {
@@ -868,8 +1060,7 @@ public class YSMClientMapper {
         Map<String, OuterFileTexture> result = new LinkedHashMap<>();
         for (RawYsmModel.RawImage img : raw.properties.backgroundImages) {
             if (img.name != null && !img.name.isEmpty()) {
-                byte[] processedData = toPng(img.data, img.format, img.width, img.height);
-                result.put(img.name, new OuterFileTexture(processedData));
+                result.put(img.name, buildTexture(img.data, img.format, img.width, img.height));
             }
         }
         return result;
