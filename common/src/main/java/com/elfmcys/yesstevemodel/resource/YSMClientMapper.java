@@ -323,6 +323,7 @@ public class YSMClientMapper {
         List<GeoBone> geoBones = new ArrayList<>();
         List<GeoModel.BakedBone> bakedBones = new ArrayList<>();
         Map<String, String> parentMap = new HashMap<>();
+        Map<String, Integer> boneIndexByName = new HashMap<>();
 
         for (RawYsmModel.RawBone rb : rawGeo.bones) {
             parentMap.put(rb.name, rb.parentName);
@@ -419,19 +420,16 @@ public class YSMClientMapper {
                     bb.cubes.add(bc);
                 }
             }
+            boneIndexByName.put(bb.name, bakedBones.size());
             bakedBones.add(bb);
         }
 
-        // 回填父级索引
+        // 回填父级索引：用 map 取代 O(n) 线扫，整体从 O(n^2) 降到 O(n)
         for (GeoModel.BakedBone b : bakedBones) {
             String parentName = parentMap.get(b.name);
             if (parentName != null && !parentName.isEmpty()) {
-                for (int i = 0; i < bakedBones.size(); i++) {
-                    if (bakedBones.get(i).name.equals(parentName)) {
-                        b.parentIdx = i;
-                        break;
-                    }
-                }
+                Integer idx = boneIndexByName.get(parentName);
+                if (idx != null) b.parentIdx = idx;
             }
             if (b.name.equals("LeftArm")) b.partMask = 1;
             else if (b.name.equals("RightArm")) b.partMask = 2;
