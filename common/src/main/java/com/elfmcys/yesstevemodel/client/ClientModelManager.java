@@ -193,6 +193,22 @@ public class ClientModelManager {
     }
 
     private static void handlePacket01(byte[] decryptedBuffer) throws Exception {
+        // Plaintext shape (server nativeSyncModels + encrypt appendNextKey):
+        //   [garbageLen|0x80] [0x00] [garbage] [0x01] [56-byte nextKey]
+        // garbageLen fits in 7 bits, so total = 2 + garbageLen + 1 + 56 ∈ [59, 186].
+        // A late packet 05 chunk decrypted with the wrong key shows up here as
+        // kilobytes of structurally-invalid bytes — drop it instead of accepting
+        // it as a key exchange, which would corrupt lastKey and cascade into a
+        // handlePacket03 crash on the next inbound chunk.
+        if (decryptedBuffer == null || decryptedBuffer.length < 59 || decryptedBuffer.length > 186) {
+            return;
+        }
+        int rxGarbageLen = decryptedBuffer[0] & 0x7F;
+        if (decryptedBuffer.length != 2 + rxGarbageLen + 1 + 56
+                || decryptedBuffer[2 + rxGarbageLen] != 0x01) {
+            return;
+        }
+
         key1 = new byte[56];
         System.arraycopy(decryptedBuffer, decryptedBuffer.length - 56, key1, 0, 56);
         syncStep = 2;
@@ -223,7 +239,11 @@ public class ClientModelManager {
 
     private static void handlePacket03(YSMByteBuf buf) throws Exception {
         buf.skipGarbageHeader();
-        int type = buf.readVarInt(); // expect 3
+        int type = buf.readVarInt();
+        // Defense in depth: a wrong-key decryption here would have lastKey pointing
+        // at junk and `type` reading as anything. handlePacket05 already does the
+        // same guard with `if (type != 5) return`.
+        if (type != 3) return;
         long folderHash = buf.readVarLong();
         currentCacheFolderName = Long.toHexString(folderHash);
 
