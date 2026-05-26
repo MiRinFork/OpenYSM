@@ -1,5 +1,6 @@
 package com.elfmcys.yesstevemodel.resource;
 
+import com.elfmcys.yesstevemodel.YesSteveModel;
 import com.elfmcys.yesstevemodel.resource.pojo.RawYsmModel;
 import io.netty.buffer.Unpooled;
 import rip.ysm.security.YSMByteBuf;
@@ -28,7 +29,7 @@ public class YSMBinaryDeserializer implements AutoCloseable{
 
 
     private RawYsmModel deserializeInternal(boolean closeOnExit) {
-        System.out.println("deserializing format " + format + " file...");
+        YesSteveModel.LOGGER.debug("deserializing format {} file...", format);
         if (format < 4) {
             deserializeLegacyV1();
         } else if (format <= 15) {
@@ -46,7 +47,7 @@ public class YSMBinaryDeserializer implements AutoCloseable{
         if (closeOnExit) {
             this.reader.close();
         }
-        System.out.println("end offset: 0x" + Integer.toHexString(offset));
+        YesSteveModel.LOGGER.debug("end offset: 0x{}", Integer.toHexString(offset));
         return model;
     }
 
@@ -82,8 +83,8 @@ public class YSMBinaryDeserializer implements AutoCloseable{
             }
 
         } catch (Throwable t) {
-            System.out.println("ERROR");
-            t.printStackTrace(System.out);
+            YesSteveModel.LOGGER.debug("Failed to parse YSM footer (format={}, offset=0x{})",
+                    format, Integer.toHexString(reader.getOffset()), t);
         }
     }
 
@@ -400,7 +401,7 @@ public class YSMBinaryDeserializer implements AutoCloseable{
             geoRef.sha256 = hash;
             geoRef.modelType = modelType;
             tempMainModels.add(geoRef);
-            System.out.println("Model Table Entry: ID=" + modelType + ", Hash=" + hash);
+            YesSteveModel.LOGGER.debug("Model Table Entry: ID={}, Hash={}", modelType, hash);
         }
         assignMainModels(tempMainModels);
 

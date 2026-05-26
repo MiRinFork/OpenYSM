@@ -1,6 +1,7 @@
 package com.elfmcys.yesstevemodel.resource;
 
 import com.elfmcys.yesstevemodel.NativeLibLoader;
+import com.elfmcys.yesstevemodel.YesSteveModel;
 import com.elfmcys.yesstevemodel.audio.AudioCodec;
 import com.elfmcys.yesstevemodel.audio.AudioTrackData;
 import com.elfmcys.yesstevemodel.client.ClientModelInfo;
@@ -212,7 +213,7 @@ public class YSMClientMapper {
                 }
             }
         } catch (Exception e) {
-            e.printStackTrace();
+            YesSteveModel.LOGGER.debug("decodeToImage failed (format={}, {}x{})", imageFormat, width, height, e);
         }
         return null;
     }
@@ -224,7 +225,7 @@ public class YSMClientMapper {
                 ImageIO.write(img, "png", baos);
                 return baos.toByteArray();
             } catch (Exception e) {
-                e.printStackTrace();
+                YesSteveModel.LOGGER.debug("encodeToPng failed", e);
             }
         }
         return fallbackData;
