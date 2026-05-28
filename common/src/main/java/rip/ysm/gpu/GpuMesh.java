@@ -6,6 +6,7 @@ import org.lwjgl.opengl.*;
 import org.lwjgl.system.MemoryUtil;
 
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 
 public final class GpuMesh {
     public final long pointer;
@@ -24,6 +25,8 @@ public final class GpuMesh {
 
     private int xformVbo = 0;
     private int xformVao = 0;
+    private ByteBuffer xformReadbackBuffer;
+    private ByteBuffer indexReadbackBuffer;
     private int nextBoneSsboIndex = 0;
     private boolean disposed = false;
 
@@ -100,6 +103,26 @@ public final class GpuMesh {
         GlStateManager._glBindBuffer(GL15.GL_ELEMENT_ARRAY_BUFFER, 0);
     }
 
+    public ByteBuffer xformReadbackBuffer() {
+        xformReadbackBuffer = ensureReadbackCapacity(xformReadbackBuffer, vertexCount * 36);
+        return xformReadbackBuffer;
+    }
+
+    public ByteBuffer indexReadbackBuffer(int indexBytes) {
+        indexReadbackBuffer = ensureReadbackCapacity(indexReadbackBuffer, indexBytes);
+        return indexReadbackBuffer;
+    }
+
+    private static ByteBuffer ensureReadbackCapacity(ByteBuffer buffer, int requiredBytes) {
+        if (buffer == null || buffer.capacity() < requiredBytes) {
+            if (buffer != null) MemoryUtil.memFree(buffer);
+            buffer = MemoryUtil.memAlloc(requiredBytes).order(ByteOrder.nativeOrder());
+        }
+        buffer.clear();
+        buffer.limit(requiredBytes);
+        return buffer;
+    }
+
     public void dispose() {
         if (disposed) return;
         disposed = true;
@@ -115,5 +138,7 @@ public final class GpuMesh {
             GeoModel.nFreeGpuMesh(pointer);
         }
         MemoryUtil.memFree(perFrameBoneBuffer);
+        if (xformReadbackBuffer != null) MemoryUtil.memFree(xformReadbackBuffer);
+        if (indexReadbackBuffer != null) MemoryUtil.memFree(indexReadbackBuffer);
     }
 }

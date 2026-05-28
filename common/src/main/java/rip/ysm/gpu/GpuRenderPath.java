@@ -6,6 +6,7 @@ import com.elfmcys.yesstevemodel.mixin.client.RenderSystemAccessor;
 import com.mojang.blaze3d.platform.GlStateManager;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.PoseStack;
+import com.mojang.blaze3d.vertex.VertexConsumer;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.texture.AbstractTexture;
 import net.minecraft.resources.ResourceLocation;
@@ -23,6 +24,10 @@ public final class GpuRenderPath {
     private static final float[] rootPoseScratch = new float[16];
     private static final float[] rootNormalScratch = new float[9];
     private static final float[] projScratch = new float[16];
+    private static final float[] identityScratch = new Matrix4f().get(new float[16]);
+    /** Byte stride of one vertex in the compute shader (bone_xform.csh) readback output. */
+    private static final int READBACK_STRIDE = 36;
+    private static final int[] quadIndexScratch = new int[6];
     private static final Matrix4f projMVScratch = new Matrix4f();
     private static final Vector3f[] currentLights = new Vector3f[2];
     private static final ConcurrentHashMap<Long, GpuMesh> meshMap = new ConcurrentHashMap<>();
@@ -194,6 +199,207 @@ public final class GpuRenderPath {
             com.mojang.blaze3d.vertex.BufferUploader.invalidate();
             snapshot.restore();
         }
+    }
+
+    public static boolean tryRenderToConsumer(
+            VertexConsumer vertexConsumer,
+            GeoModel model,
+            PoseStack.Pose pose,
+            float[] boneParams,
+            float[] stateBuffer,
+            int renderPartMask,
+            int packedLight,
+            int packedOverlay,
+            float r, float g, float b, float a,
+            ResourceLocation textureLocation,
+            String renderContext
+    ) {
+        if (vertexConsumer == null) {
+            debugFallback(renderContext, "missing vertex consumer", renderPartMask, packedLight, textureLocation);
+            return false;
+        }
+        if (!GpuCapability.isAvailable()) {
+            debugFallback(renderContext, GpuCapability.getReason(), renderPartMask, packedLight, textureLocation);
+            return false;
+        }
+        if (!GL.getCapabilities().OpenGL43) {
+            debugFallback(renderContext, "OpenGL 4.3 compute shader unavailable", renderPartMask, packedLight, textureLocation);
+            return false;
+        }
+        if (!BoneXformCompute.ensureCompiled()) {
+            debugFallback(renderContext, "compute shader compile failed", renderPartMask, packedLight, textureLocation);
+            return false;
+        }
+        if (model.bakedBones == null || model.bakedBones.isEmpty()) {
+            debugFallback(renderContext, "empty model", renderPartMask, packedLight, textureLocation);
+            return false;
+        }
+
+        GlStateSnapshot snapshot = GlStateSnapshot.capture();
+        int drawCount = 0;
+        try {
+            GpuMesh mesh = getOrBuildMesh(model);
+            if (mesh == null) {
+                debugFallback(renderContext, "mesh build failed", renderPartMask, packedLight, textureLocation);
+                return false;
+            }
+            mesh.ensureXformBuffers();
+
+            Matrix4f rootPose = pose.pose();
+            Matrix3f rootNormal = pose.normal();
+            rootPose.get(rootPoseScratch);
+            rootNormal.get(rootNormalScratch);
+
+            ByteBuffer boneBuf = mesh.perFrameBoneBuffer;
+            boneBuf.clear();
+
+            updatePivotAbsStateBuffer(model, boneParams, stateBuffer);
+
+            GeoModel.nComputeBoneMatrices(mesh.pointer, rootPoseScratch, rootNormalScratch, boneParams, packedLight, boneBuf);
+            boneBuf.position(0);
+            boneBuf.limit(mesh.boneCount * 144);
+
+            int boneSsbo = mesh.nextBoneSsbo();
+            GL15.glBindBuffer(GL43.GL_SHADER_STORAGE_BUFFER, boneSsbo);
+            GL15.glBufferSubData(GL43.GL_SHADER_STORAGE_BUFFER, 0L, boneBuf);
+
+            GlStateManager._glUseProgram(BoneXformCompute.program());
+            if (BoneXformCompute.locColor() >= 0) GL20.glUniform4f(BoneXformCompute.locColor(), r, g, b, a);
+            if (BoneXformCompute.locOverlay() >= 0) GL20.glUniform1i(BoneXformCompute.locOverlay(), packedOverlay);
+            if (BoneXformCompute.locModelView() >= 0) {
+                GL20.glUniformMatrix4fv(BoneXformCompute.locModelView(), false, identityScratch);
+            }
+
+            GL43.glBindBufferBase(GL43.GL_SHADER_STORAGE_BUFFER, 0, mesh.vbo);
+            GL43.glBindBufferBase(GL43.GL_SHADER_STORAGE_BUFFER, 1, mesh.xformVbo());
+            GL43.glBindBufferBase(GL43.GL_SHADER_STORAGE_BUFFER, 2, boneSsbo);
+
+            GL43.glDispatchCompute(BoneXformCompute.dispatchGroupCount(mesh.vertexCount), 1, 1);
+            GL42.glMemoryBarrier(GL42.GL_ALL_BARRIER_BITS);
+
+            ByteBuffer vertices = mesh.xformReadbackBuffer();
+            GlStateManager._glBindBuffer(GL15.GL_ARRAY_BUFFER, mesh.xformVbo());
+            GL15.glGetBufferSubData(GL15.GL_ARRAY_BUFFER, 0L, vertices);
+
+            drawCount = mesh.indexDrawCount(renderPartMask);
+            if (drawCount > 0) {
+                ByteBuffer indices = mesh.indexReadbackBuffer(drawCount * Integer.BYTES);
+                GlStateManager._glBindBuffer(GL15.GL_ELEMENT_ARRAY_BUFFER, mesh.ibo);
+                GL15.glGetBufferSubData(GL15.GL_ELEMENT_ARRAY_BUFFER, mesh.indexOffsetBytes(renderPartMask), indices);
+                submitReadbackVertices(vertexConsumer, vertices, indices, drawCount);
+            }
+
+            debugSuccess(renderContext + ":consumer", drawCount, renderPartMask, packedLight, textureLocation, snapshot);
+            return true;
+        } catch (Throwable t) {
+            debugFallback(renderContext, "consumer exception: " + t.getClass().getSimpleName() + ": " + t.getMessage(), drawCount, renderPartMask, packedLight, textureLocation, snapshot);
+            YesSteveModel.LOGGER.error("[YSM GPU] GPU consumer render path failed; falling back for this draw", t);
+            return false;
+        } finally {
+            GL43.glBindBufferBase(GL43.GL_SHADER_STORAGE_BUFFER, 0, 0);
+            GL43.glBindBufferBase(GL43.GL_SHADER_STORAGE_BUFFER, 1, 0);
+            GL43.glBindBufferBase(GL43.GL_SHADER_STORAGE_BUFFER, 2, 0);
+            GL15.glBindBuffer(GL43.GL_SHADER_STORAGE_BUFFER, 0);
+            GlStateManager._glUseProgram(0);
+            com.mojang.blaze3d.vertex.BufferUploader.invalidate();
+            snapshot.restore();
+        }
+    }
+
+    private static void submitReadbackVertices(VertexConsumer vertexConsumer, ByteBuffer vertices, ByteBuffer indices, int drawCount) {
+        int[] quad = quadIndexScratch;
+        int i = 0;
+        for (; i + 5 < drawCount; i += 6) {
+            int min = Integer.MAX_VALUE;
+            int max = Integer.MIN_VALUE;
+            for (int k = 0; k < 6; k++) {
+                int idx = indices.getInt((i + k) * Integer.BYTES);
+                quad[k] = idx;
+                min = Math.min(min, idx);
+                max = Math.max(max, idx);
+            }
+            // The target RenderType uses QUADS draw mode (4 verts/primitive) while the index
+            // buffer is triangulated (6 indices/quad). A contiguous run of exactly 4 distinct
+            // vertices reconstructs into a single quad; otherwise fall back to two triangles.
+            if (max - min == 3 && coversContiguousQuad(quad, min)) {
+                if (!isHiddenQuad(vertices, min)) {
+                    submitReadbackVertex(vertexConsumer, vertices, min);
+                    submitReadbackVertex(vertexConsumer, vertices, min + 1);
+                    submitReadbackVertex(vertexConsumer, vertices, min + 2);
+                    submitReadbackVertex(vertexConsumer, vertices, min + 3);
+                }
+                continue;
+            }
+
+            submitReadbackTriangle(vertexConsumer, vertices, quad[0], quad[1], quad[2]);
+            submitReadbackTriangle(vertexConsumer, vertices, quad[3], quad[4], quad[5]);
+        }
+        for (; i + 2 < drawCount; i += 3) {
+            int idx0 = indices.getInt(i * Integer.BYTES);
+            int idx1 = indices.getInt((i + 1) * Integer.BYTES);
+            int idx2 = indices.getInt((i + 2) * Integer.BYTES);
+            submitReadbackTriangle(vertexConsumer, vertices, idx0, idx1, idx2);
+        }
+    }
+
+    private static boolean coversContiguousQuad(int[] indices, int min) {
+        for (int offset = 0; offset < 4; offset++) {
+            if (!hasIndex(indices, min + offset)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static boolean hasIndex(int[] indices, int value) {
+        for (int idx : indices) {
+            if (idx == value) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean isHiddenQuad(ByteBuffer vertices, int min) {
+        return isHiddenReadbackVertex(vertices, min)
+                && isHiddenReadbackVertex(vertices, min + 1)
+                && isHiddenReadbackVertex(vertices, min + 2)
+                && isHiddenReadbackVertex(vertices, min + 3);
+    }
+
+    private static void submitReadbackTriangle(VertexConsumer vertexConsumer, ByteBuffer vertices, int idx0, int idx1, int idx2) {
+        if (isHiddenReadbackVertex(vertices, idx0) && isHiddenReadbackVertex(vertices, idx1) && isHiddenReadbackVertex(vertices, idx2)) {
+            return;
+        }
+        submitReadbackVertex(vertexConsumer, vertices, idx0);
+        submitReadbackVertex(vertexConsumer, vertices, idx1);
+        submitReadbackVertex(vertexConsumer, vertices, idx2);
+    }
+
+    private static boolean isHiddenReadbackVertex(ByteBuffer vertices, int index) {
+        int base = index * READBACK_STRIDE;
+        return vertices.getFloat(base) == 2.0f
+                && vertices.getFloat(base + 4) == 2.0f
+                && vertices.getFloat(base + 8) == 2.0f;
+    }
+
+    private static void submitReadbackVertex(VertexConsumer vertexConsumer, ByteBuffer vertices, int index) {
+        int base = index * READBACK_STRIDE;
+        float x = vertices.getFloat(base);
+        float y = vertices.getFloat(base + 4);
+        float z = vertices.getFloat(base + 8);
+        float red = (vertices.get(base + 12) & 0xFF) / 255.0f;
+        float green = (vertices.get(base + 13) & 0xFF) / 255.0f;
+        float blue = (vertices.get(base + 14) & 0xFF) / 255.0f;
+        float alpha = (vertices.get(base + 15) & 0xFF) / 255.0f;
+        float u = vertices.getFloat(base + 16);
+        float v = vertices.getFloat(base + 20);
+        int overlay = vertices.getInt(base + 24);
+        int light = vertices.getInt(base + 28);
+        float normalX = vertices.get(base + 32) / 127.0f;
+        float normalY = vertices.get(base + 33) / 127.0f;
+        float normalZ = vertices.get(base + 34) / 127.0f;
+        vertexConsumer.vertex(x, y, z, red, green, blue, alpha, u, v, overlay, light, normalX, normalY, normalZ);
     }
 
     public static void debugFallback(String renderContext, String reason, int renderPartMask, int packedLight, ResourceLocation textureLocation) {

@@ -38,10 +38,14 @@ public class NativeModelRenderer {
         boolean isPreview = ModelPreviewRenderer.isPreview() || ModelPreviewRenderer.isExtraPlayer();
         String gpuRenderContext = ModelPreviewRenderer.isExtraPlayer() ? "paperdoll" : (ModelPreviewRenderer.isPreview() ? "preview" : "world");
 
-        if (textureLocation != null && NativeLibLoader.isLoaded() && !GeneralConfig.USE_COMPATIBILITY_RENDERER.get() && GeneralConfig.USE_GPU_RENDERER.get() && canDirectRenderTo(buffer)) {
+        if (textureLocation != null && NativeLibLoader.isLoaded() && !GeneralConfig.USE_COMPATIBILITY_RENDERER.get() && GeneralConfig.USE_GPU_RENDERER.get()) {
 
             if (!GpuCapability.isAvailable()) {
                 GpuRenderPath.debugFallback(gpuRenderContext, GpuCapability.getReason(), renderPartMask, packedLight, textureLocation);
+            } else if (!canDirectRenderTo(buffer)) {
+                if (GpuRenderPath.tryRenderToConsumer(buffer, model, pose, boneParams, stateBuffer, renderPartMask, packedLight, packedOverlay, red, green, blue, alpha, textureLocation, gpuRenderContext)) {
+                    return;
+                }
             } else if (OculusCompat.isShaderPackInUse() && !isPreview) {
                 if (IrisRenderPath.tryRender(model, pose, boneParams, renderPartMask, packedLight, packedOverlay, red, green, blue, alpha, textureLocation)) {
                     return;
