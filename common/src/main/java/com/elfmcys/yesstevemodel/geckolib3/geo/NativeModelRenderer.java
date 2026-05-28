@@ -38,7 +38,7 @@ public class NativeModelRenderer {
         boolean isPreview = ModelPreviewRenderer.isPreview() || ModelPreviewRenderer.isExtraPlayer();
         String gpuRenderContext = ModelPreviewRenderer.isExtraPlayer() ? "paperdoll" : (ModelPreviewRenderer.isPreview() ? "preview" : "world");
 
-        if (textureLocation != null && NativeLibLoader.isLoaded() && !GeneralConfig.USE_COMPATIBILITY_RENDERER.get() && GeneralConfig.USE_GPU_RENDERER.get()) {
+        if (textureLocation != null && NativeLibLoader.isLoaded() && !GeneralConfig.USE_COMPATIBILITY_RENDERER.get() && GeneralConfig.USE_GPU_RENDERER.get() && canDirectRenderTo(buffer)) {
 
             if (!GpuCapability.isAvailable()) {
                 GpuRenderPath.debugFallback(gpuRenderContext, GpuCapability.getReason(), renderPartMask, packedLight, textureLocation);
@@ -86,6 +86,10 @@ public class NativeModelRenderer {
                     isPreview
             );
         }
+    }
+
+    private static boolean canDirectRenderTo(VertexConsumer buffer) {
+        return buffer != null && "com.mojang.blaze3d.vertex.BufferBuilder".equals(buffer.getClass().getName());
     }
 
     public static void renderModel(
