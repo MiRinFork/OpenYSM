@@ -3,12 +3,17 @@ package rip.ysm.gpu;
 import com.elfmcys.yesstevemodel.geckolib3.geo.render.built.GeoModel;
 import com.mojang.blaze3d.platform.GlStateManager;
 import com.mojang.blaze3d.systems.RenderSystem;
+import org.lwjgl.opengl.ARBShaderStorageBufferObject;
 import org.lwjgl.opengl.*;
 
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 
 public final class GpuMeshBuilder {
+    // Four slots cover the typical 2-3 frame GPU pipeline depth plus the current upload.
+    // This relies on driver-side implicit synchronization instead of explicit GL fences.
+    private static final int BONE_SSBO_RING_SIZE = 4;
+
     public static GpuMesh build(GeoModel model) {
         if (model.bakedBones == null || model.bakedBones.isEmpty()) return null;
         RenderSystem.assertOnRenderThread();
@@ -34,7 +39,7 @@ public final class GpuMeshBuilder {
         int vao = GL30.glGenVertexArrays();
         int vbo = GlStateManager._glGenBuffers();
         int ibo = GlStateManager._glGenBuffers();
-        int ssbo = GlStateManager._glGenBuffers();
+        int[] boneSsbos = new int[BONE_SSBO_RING_SIZE];
 
         GL30.glBindVertexArray(vao);
         GlStateManager._glBindBuffer(GL15.GL_ARRAY_BUFFER, vbo);
@@ -58,12 +63,15 @@ public final class GpuMeshBuilder {
         GlStateManager._glBindBuffer(GL15.GL_ARRAY_BUFFER, 0);
         GlStateManager._glBindBuffer(GL15.GL_ELEMENT_ARRAY_BUFFER, 0);
 
-        GlStateManager._glBindBuffer(GL43.GL_SHADER_STORAGE_BUFFER, ssbo);
-        GL45.glBufferData(GL43.GL_SHADER_STORAGE_BUFFER, (long) boneCount * 144, GL15.GL_DYNAMIC_DRAW);
-        GlStateManager._glBindBuffer(GL43.GL_SHADER_STORAGE_BUFFER, 0);
+        for (int i = 0; i < boneSsbos.length; i++) {
+            boneSsbos[i] = GlStateManager._glGenBuffers();
+            GlStateManager._glBindBuffer(ARBShaderStorageBufferObject.GL_SHADER_STORAGE_BUFFER, boneSsbos[i]);
+            GL15.glBufferData(ARBShaderStorageBufferObject.GL_SHADER_STORAGE_BUFFER, (long) boneCount * 144, GL15.GL_DYNAMIC_DRAW);
+        }
+        GlStateManager._glBindBuffer(ARBShaderStorageBufferObject.GL_SHADER_STORAGE_BUFFER, 0);
         GeoModel.nReleaseGpuMeshScratch(handle);
 
-        return new GpuMesh(handle, vao, vbo, ibo, ssbo, vertexCount, indexCount, boneCount, meta[3], meta[4], meta[5], meta[6], meta[7], meta[8]);
+        return new GpuMesh(handle, vao, vbo, ibo, boneSsbos, vertexCount, indexCount, boneCount, meta[3], meta[4], meta[5], meta[6], meta[7], meta[8]);
     }
 
     private static ByteBuffer serializeModel(GeoModel model) {

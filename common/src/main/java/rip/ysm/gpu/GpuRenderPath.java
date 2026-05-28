@@ -131,7 +131,7 @@ public final class GpuRenderPath {
             GlStateManager._activeTexture(GL13.GL_TEXTURE0);
             GlStateManager._bindTexture(modelTexId);
 
-            int boneSsbo = mesh.boneSsbo;
+            int boneSsbo = mesh.nextBoneSsbo();
             GL15.glBindBuffer(ARBShaderStorageBufferObject.GL_SHADER_STORAGE_BUFFER, boneSsbo);
             GL15.glBufferSubData(ARBShaderStorageBufferObject.GL_SHADER_STORAGE_BUFFER, 0L, boneBuf);
             GL30.glBindBufferBase(ARBShaderStorageBufferObject.GL_SHADER_STORAGE_BUFFER, BoneSkinShader.ssbo, boneSsbo);
