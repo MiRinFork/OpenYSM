@@ -10,7 +10,6 @@ import com.mojang.blaze3d.vertex.VertexConsumer;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.texture.AbstractTexture;
 import net.minecraft.resources.ResourceLocation;
-import org.joml.Matrix3f;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
 import org.lwjgl.opengl.*;
@@ -95,24 +94,12 @@ public final class GpuRenderPath {
                 return false;
             }
 
-            Matrix4f rootPose = pose.pose();
-            Matrix3f rootNormal = pose.normal();
             Matrix4f projMat = RenderSystem.getProjectionMatrix();
             Matrix4f mvMat = RenderSystem.getModelViewMatrix();
-
-            rootPose.get(rootPoseScratch);
-            rootNormal.get(rootNormalScratch);
             projMat.mul(mvMat, projMVScratch);
             projMVScratch.get(projScratch);
 
-            ByteBuffer boneBuf = mesh.perFrameBoneBuffer;
-            boneBuf.clear();
-
-            updatePivotAbsStateBuffer(model, boneParams, stateBuffer);
-
-            GeoModel.nComputeBoneMatrices(mesh.pointer, rootPoseScratch, rootNormalScratch, boneParams, packedLight, boneBuf);
-            boneBuf.position(0);
-            boneBuf.limit(mesh.boneCount * 144);
+            ByteBuffer boneBuf = computeBoneMatrices(mesh, model, pose, boneParams, stateBuffer, packedLight);
 
             RenderSystem.disableCull();
             RenderSystem.enableDepthTest();
@@ -245,19 +232,7 @@ public final class GpuRenderPath {
             }
             mesh.ensureXformBuffers();
 
-            Matrix4f rootPose = pose.pose();
-            Matrix3f rootNormal = pose.normal();
-            rootPose.get(rootPoseScratch);
-            rootNormal.get(rootNormalScratch);
-
-            ByteBuffer boneBuf = mesh.perFrameBoneBuffer;
-            boneBuf.clear();
-
-            updatePivotAbsStateBuffer(model, boneParams, stateBuffer);
-
-            GeoModel.nComputeBoneMatrices(mesh.pointer, rootPoseScratch, rootNormalScratch, boneParams, packedLight, boneBuf);
-            boneBuf.position(0);
-            boneBuf.limit(mesh.boneCount * 144);
+            ByteBuffer boneBuf = computeBoneMatrices(mesh, model, pose, boneParams, stateBuffer, packedLight);
 
             int boneSsbo = mesh.nextBoneSsbo();
             GL15.glBindBuffer(GL43.GL_SHADER_STORAGE_BUFFER, boneSsbo);
@@ -306,6 +281,24 @@ public final class GpuRenderPath {
         }
     }
 
+    /**
+     * Computes this frame's per-bone skinning matrices into the mesh's reusable bone buffer and
+     * returns it positioned/limited ready for upload. Shared by the direct-draw and consumer paths.
+     */
+    private static ByteBuffer computeBoneMatrices(GpuMesh mesh, GeoModel model, PoseStack.Pose pose, float[] boneParams, float[] stateBuffer, int packedLight) {
+        pose.pose().get(rootPoseScratch);
+        pose.normal().get(rootNormalScratch);
+
+        ByteBuffer boneBuf = mesh.perFrameBoneBuffer;
+        boneBuf.clear();
+        updatePivotAbsStateBuffer(model, boneParams, stateBuffer);
+
+        GeoModel.nComputeBoneMatrices(mesh.pointer, rootPoseScratch, rootNormalScratch, boneParams, packedLight, boneBuf);
+        boneBuf.position(0);
+        boneBuf.limit(mesh.boneCount * 144);
+        return boneBuf;
+    }
+
     private static void submitReadbackVertices(VertexConsumer vertexConsumer, ByteBuffer vertices, ByteBuffer indices, int drawCount) {
         int[] quad = quadIndexScratch;
         int i = 0;
@@ -319,9 +312,10 @@ public final class GpuRenderPath {
                 max = Math.max(max, idx);
             }
             // The target RenderType uses QUADS draw mode (4 verts/primitive) while the index
-            // buffer is triangulated (6 indices/quad). A contiguous run of exactly 4 distinct
-            // vertices reconstructs into a single quad; otherwise fall back to two triangles.
-            if (max - min == 3 && coversContiguousQuad(quad, min)) {
+            // buffer is triangulated (6 indices/quad). When the six indices reference exactly the
+            // four contiguous vertices [min, min+3] they reconstruct into a single quad; otherwise
+            // fall back to two triangles.
+            if (max - min == 3 && isContiguousQuad(quad, min)) {
                 if (!isHiddenQuad(vertices, min)) {
                     submitReadbackVertex(vertexConsumer, vertices, min);
                     submitReadbackVertex(vertexConsumer, vertices, min + 1);
@@ -342,22 +336,16 @@ public final class GpuRenderPath {
         }
     }
 
-    private static boolean coversContiguousQuad(int[] indices, int min) {
-        for (int offset = 0; offset < 4; offset++) {
-            if (!hasIndex(indices, min + offset)) {
-                return false;
-            }
+    /**
+     * True when the six triangulated indices reference exactly the four contiguous vertices
+     * [min, min+3]. The caller guarantees {@code max - min == 3}, so every index sits in that range.
+     */
+    private static boolean isContiguousQuad(int[] quad, int min) {
+        int seen = 0;
+        for (int idx : quad) {
+            seen |= 1 << (idx - min);
         }
-        return true;
-    }
-
-    private static boolean hasIndex(int[] indices, int value) {
-        for (int idx : indices) {
-            if (idx == value) {
-                return true;
-            }
-        }
-        return false;
+        return seen == 0b1111;
     }
 
     private static boolean isHiddenQuad(ByteBuffer vertices, int min) {
