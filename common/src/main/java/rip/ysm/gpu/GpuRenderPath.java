@@ -1,5 +1,6 @@
 package rip.ysm.gpu;
 
+import com.elfmcys.yesstevemodel.YesSteveModel;
 import com.elfmcys.yesstevemodel.geckolib3.geo.render.built.GeoModel;
 import com.elfmcys.yesstevemodel.mixin.client.RenderSystemAccessor;
 import com.mojang.blaze3d.platform.GlStateManager;
@@ -27,6 +28,10 @@ public final class GpuRenderPath {
     private static final ConcurrentHashMap<Long, GpuMesh> meshMap = new ConcurrentHashMap<>();
     private static final AtomicLong ref = new AtomicLong(1);
     private static final Matrix4f pivotAbsScratchMat = new Matrix4f();
+    private static final boolean DEBUG = Boolean.getBoolean("ysm.gpu.debug");
+    private static final int DEBUG_SAMPLE_INTERVAL = 240;
+    private static int debugSuccessCount;
+    private static int debugFallbackCount;
     private static int[] pivotAbsPathScratch = new int[64];
 
     public static boolean tryRender(
@@ -40,109 +45,175 @@ public final class GpuRenderPath {
             float r, float g, float b, float a,
             ResourceLocation textureLocation
     ) {
-        if (!GpuCapability.isAvailable()) return false;
-        if (!BoneSkinShader.ensureCompiled()) return false;
-        if (model.bakedBones == null || model.bakedBones.isEmpty()) return false;
+        return tryRender(model, pose, boneParams, stateBuffer, renderPartMask, packedLight, packedOverlay, r, g, b, a, textureLocation, "unknown");
+    }
 
-        if (model.gpuMeshHandle == 0) {
-            GpuMesh mesh = GpuMeshBuilder.build(model);
-            if (mesh == null) return false;
-            model.gpuMeshHandle = encodeMeshRef(mesh);
+    public static boolean tryRender(
+            GeoModel model,
+            PoseStack.Pose pose,
+            float[] boneParams,
+            float[] stateBuffer,
+            int renderPartMask,
+            int packedLight,
+            int packedOverlay,
+            float r, float g, float b, float a,
+            ResourceLocation textureLocation,
+            String renderContext
+    ) {
+        if (!GpuCapability.isAvailable()) {
+            debugFallback(renderContext, GpuCapability.getReason(), renderPartMask, packedLight, textureLocation);
+            return false;
         }
-        GpuMesh mesh = decodeMeshRef(model.gpuMeshHandle);
-        if (mesh == null) return false;
+        if (!BoneSkinShader.ensureCompiled()) {
+            debugFallback(renderContext, "shader compile failed", renderPartMask, packedLight, textureLocation);
+            return false;
+        }
+        if (model.bakedBones == null || model.bakedBones.isEmpty()) {
+            debugFallback(renderContext, "empty model", renderPartMask, packedLight, textureLocation);
+            return false;
+        }
 
-        Matrix4f rootPose = pose.pose();
-        Matrix3f rootNormal = pose.normal();
-        Matrix4f projMat = RenderSystem.getProjectionMatrix();
-        Matrix4f mvMat = RenderSystem.getModelViewMatrix();
+        GlStateSnapshot snapshot = GlStateSnapshot.capture();
+        int drawCount = 0;
+        try {
+            if (model.gpuMeshHandle == 0) {
+                GpuMesh builtMesh = GpuMeshBuilder.build(model);
+                if (builtMesh == null) {
+                    debugFallback(renderContext, "mesh build failed", renderPartMask, packedLight, textureLocation);
+                    return false;
+                }
+                model.gpuMeshHandle = encodeMeshRef(builtMesh);
+            }
+            GpuMesh mesh = decodeMeshRef(model.gpuMeshHandle);
+            if (mesh == null) {
+                debugFallback(renderContext, "missing mesh handle", renderPartMask, packedLight, textureLocation);
+                return false;
+            }
 
-        rootPose.get(rootPoseScratch);
-        rootNormal.get(rootNormalScratch);
-        projMat.mul(mvMat, projMVScratch);
-        projMVScratch.get(projScratch);
+            Matrix4f rootPose = pose.pose();
+            Matrix3f rootNormal = pose.normal();
+            Matrix4f projMat = RenderSystem.getProjectionMatrix();
+            Matrix4f mvMat = RenderSystem.getModelViewMatrix();
 
-        ByteBuffer boneBuf = mesh.perFrameBoneBuffer;
-        boneBuf.clear();
+            rootPose.get(rootPoseScratch);
+            rootNormal.get(rootNormalScratch);
+            projMat.mul(mvMat, projMVScratch);
+            projMVScratch.get(projScratch);
 
-        updatePivotAbsStateBuffer(model, boneParams, stateBuffer);
+            ByteBuffer boneBuf = mesh.perFrameBoneBuffer;
+            boneBuf.clear();
 
-        GeoModel.nComputeBoneMatrices(mesh.pointer, rootPoseScratch, rootNormalScratch, boneParams, packedLight, boneBuf);
-        boneBuf.position(0);
-        boneBuf.limit(mesh.boneCount * 144);
+            updatePivotAbsStateBuffer(model, boneParams, stateBuffer);
 
-        RenderSystem.disableCull();
-        RenderSystem.enableDepthTest();
-        RenderSystem.depthMask(true);
-        RenderSystem.disableBlend();
+            GeoModel.nComputeBoneMatrices(mesh.pointer, rootPoseScratch, rootNormalScratch, boneParams, packedLight, boneBuf);
+            boneBuf.position(0);
+            boneBuf.limit(mesh.boneCount * 144);
 
-        Minecraft mc = Minecraft.getInstance();
-        AbstractTexture modelTex = mc.getTextureManager().getTexture(textureLocation);
-        int modelTexId = modelTex.getId();
-
-        GlStateManager._activeTexture(GL13.GL_TEXTURE0 + 2);
-        mc.gameRenderer.lightTexture().turnOnLightLayer();
-
-        GlStateManager._activeTexture(GL13.GL_TEXTURE0 + 1);
-        mc.gameRenderer.overlayTexture().setupOverlayColor();
-        GlStateManager._bindTexture(RenderSystem.getShaderTexture(1)); // overlayTexture里的texture没getter，固定bind 1
-
-        GlStateManager._activeTexture(GL13.GL_TEXTURE0);
-        GlStateManager._bindTexture(modelTexId);
-
-        GL15.glBindBuffer(GL43.GL_SHADER_STORAGE_BUFFER, mesh.boneSsbo);
-        GL15.glBufferSubData(GL43.GL_SHADER_STORAGE_BUFFER, 0L, boneBuf);
-        GL43.glBindBufferBase(GL43.GL_SHADER_STORAGE_BUFFER, BoneSkinShader.ssbo, mesh.boneSsbo);
-
-        float fogStart = RenderSystem.getShaderFogStart();
-        float fogEnd = RenderSystem.getShaderFogEnd();
-        float[] fogColor = RenderSystem.getShaderFogColor();
-        int fogShape = RenderSystem.getShaderFogShape().getIndex();
-
-        GlStateManager._glUseProgram(BoneSkinShader.program());
-        if (BoneSkinShader.locProj() >= 0) GL20.glUniformMatrix4fv(BoneSkinShader.locProj(), false, projScratch);
-        if (BoneSkinShader.locColor() >= 0) GL20.glUniform4f(BoneSkinShader.locColor(), r, g, b, a);
-        if (BoneSkinShader.locOverlay() >= 0) GL20.glUniform1i(BoneSkinShader.locOverlay(), packedOverlay);
-        if (BoneSkinShader.locFogStart() >= 0) GL20.glUniform1f(BoneSkinShader.locFogStart(), fogStart);
-        if (BoneSkinShader.locFogEnd() >= 0) GL20.glUniform1f(BoneSkinShader.locFogEnd(), fogEnd);
-
-        if (BoneSkinShader.locFogColor() >= 0)
-            GL20.glUniform4f(BoneSkinShader.locFogColor(), fogColor[0], fogColor[1], fogColor[2], fogColor[3]);
-
-        if (BoneSkinShader.locFogShape() >= 0) GL20.glUniform1i(BoneSkinShader.locFogShape(), fogShape);
-
-        refreshLights();
-
-        if (BoneSkinShader.locLight0() >= 0)
-            GL20.glUniform3f(BoneSkinShader.locLight0(), currentLights[0].x, currentLights[0].y, currentLights[0].z);
-        if (BoneSkinShader.locLight1() >= 0)
-            GL20.glUniform3f(BoneSkinShader.locLight1(), currentLights[1].x, currentLights[1].y, currentLights[1].z);
-
-        GlStateManager._glBindVertexArray(mesh.vao);
-
-        int offsetBytes = mesh.indexOffsetBytes(renderPartMask);
-        int drawCount = mesh.indexDrawCount(renderPartMask);
-        if (drawCount > 0) {
-            if (BoneSkinShader.locAlphaMode() >= 0) GL20.glUniform1i(BoneSkinShader.locAlphaMode(), 1);
-            GL11.glDrawElements(GL11.GL_TRIANGLES, drawCount, GL11.GL_UNSIGNED_INT, offsetBytes);
-
-            RenderSystem.enableBlend();
-            RenderSystem.defaultBlendFunc();
-            if (BoneSkinShader.locAlphaMode() >= 0) GL20.glUniform1i(BoneSkinShader.locAlphaMode(), 2);
-            GL11.glDrawElements(GL11.GL_TRIANGLES, drawCount, GL11.GL_UNSIGNED_INT, offsetBytes);
+            RenderSystem.disableCull();
+            RenderSystem.enableDepthTest();
+            RenderSystem.depthMask(true);
             RenderSystem.disableBlend();
+            GlStateManager._blendFuncSeparate(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA, GL11.GL_ONE, GL11.GL_ZERO);
+            GlStateManager._blendEquation(GL14.GL_FUNC_ADD);
+            GL11.glFrontFace(GL11.GL_CCW);
+
+            Minecraft mc = Minecraft.getInstance();
+            AbstractTexture modelTex = mc.getTextureManager().getTexture(textureLocation);
+            int modelTexId = modelTex.getId();
+
+            GlStateManager._activeTexture(GL13.GL_TEXTURE0 + 2);
+            mc.gameRenderer.lightTexture().turnOnLightLayer();
+
+            GlStateManager._activeTexture(GL13.GL_TEXTURE0 + 1);
+            mc.gameRenderer.overlayTexture().setupOverlayColor();
+            GlStateManager._bindTexture(RenderSystem.getShaderTexture(1)); // overlayTexture里的texture没getter，固定bind 1
+
+            GlStateManager._activeTexture(GL13.GL_TEXTURE0);
+            GlStateManager._bindTexture(modelTexId);
+
+            int boneSsbo = mesh.boneSsbo;
+            GL15.glBindBuffer(ARBShaderStorageBufferObject.GL_SHADER_STORAGE_BUFFER, boneSsbo);
+            GL15.glBufferSubData(ARBShaderStorageBufferObject.GL_SHADER_STORAGE_BUFFER, 0L, boneBuf);
+            GL30.glBindBufferBase(ARBShaderStorageBufferObject.GL_SHADER_STORAGE_BUFFER, BoneSkinShader.ssbo, boneSsbo);
+
+            float fogStart = RenderSystem.getShaderFogStart();
+            float fogEnd = RenderSystem.getShaderFogEnd();
+            float[] fogColor = RenderSystem.getShaderFogColor();
+            int fogShape = RenderSystem.getShaderFogShape().getIndex();
+
+            GlStateManager._glUseProgram(BoneSkinShader.program());
+            if (BoneSkinShader.locProj() >= 0) GL20.glUniformMatrix4fv(BoneSkinShader.locProj(), false, projScratch);
+            if (BoneSkinShader.locColor() >= 0) GL20.glUniform4f(BoneSkinShader.locColor(), r, g, b, a);
+            if (BoneSkinShader.locOverlay() >= 0) GL20.glUniform1i(BoneSkinShader.locOverlay(), packedOverlay);
+            if (BoneSkinShader.locFogStart() >= 0) GL20.glUniform1f(BoneSkinShader.locFogStart(), fogStart);
+            if (BoneSkinShader.locFogEnd() >= 0) GL20.glUniform1f(BoneSkinShader.locFogEnd(), fogEnd);
+
+            if (BoneSkinShader.locFogColor() >= 0)
+                GL20.glUniform4f(BoneSkinShader.locFogColor(), fogColor[0], fogColor[1], fogColor[2], fogColor[3]);
+
+            if (BoneSkinShader.locFogShape() >= 0) GL20.glUniform1i(BoneSkinShader.locFogShape(), fogShape);
+
+            refreshLights();
+
+            if (BoneSkinShader.locLight0() >= 0)
+                GL20.glUniform3f(BoneSkinShader.locLight0(), currentLights[0].x, currentLights[0].y, currentLights[0].z);
+            if (BoneSkinShader.locLight1() >= 0)
+                GL20.glUniform3f(BoneSkinShader.locLight1(), currentLights[1].x, currentLights[1].y, currentLights[1].z);
+
+            GlStateManager._glBindVertexArray(mesh.vao);
+
+            int offsetBytes = mesh.indexOffsetBytes(renderPartMask);
+            drawCount = mesh.indexDrawCount(renderPartMask);
+            if (drawCount > 0) {
+                if (BoneSkinShader.locAlphaMode() >= 0) GL20.glUniform1i(BoneSkinShader.locAlphaMode(), 1);
+                GL11.glDrawElements(GL11.GL_TRIANGLES, drawCount, GL11.GL_UNSIGNED_INT, offsetBytes);
+
+                RenderSystem.enableBlend();
+                RenderSystem.defaultBlendFunc();
+                if (BoneSkinShader.locAlphaMode() >= 0) GL20.glUniform1i(BoneSkinShader.locAlphaMode(), 2);
+                GL11.glDrawElements(GL11.GL_TRIANGLES, drawCount, GL11.GL_UNSIGNED_INT, offsetBytes);
+                RenderSystem.disableBlend();
+            }
+
+            debugSuccess(renderContext, drawCount, renderPartMask, packedLight, textureLocation, snapshot);
+            return true;
+        } catch (Throwable t) {
+            debugFallback(renderContext, "exception: " + t.getClass().getSimpleName() + ": " + t.getMessage(), drawCount, renderPartMask, packedLight, textureLocation, snapshot);
+            YesSteveModel.LOGGER.error("[YSM GPU] GPU render path failed; falling back for this draw", t);
+            return false;
+        } finally {
+            try {
+                Minecraft mc = Minecraft.getInstance();
+                mc.gameRenderer.overlayTexture().teardownOverlayColor();
+                mc.gameRenderer.lightTexture().turnOffLightLayer();
+            } catch (Throwable ignored) {
+            }
+            GL30.glBindBufferBase(ARBShaderStorageBufferObject.GL_SHADER_STORAGE_BUFFER, BoneSkinShader.ssbo, 0);
+            GL15.glBindBuffer(ARBShaderStorageBufferObject.GL_SHADER_STORAGE_BUFFER, 0);
+            GlStateManager._glUseProgram(0);
+            com.mojang.blaze3d.vertex.BufferUploader.invalidate();
+            snapshot.restore();
         }
+    }
 
-        GL43.glBindBufferBase(GL43.GL_SHADER_STORAGE_BUFFER, BoneSkinShader.ssbo, 0);
-        GL15.glBindBuffer(GL43.GL_SHADER_STORAGE_BUFFER, 0);
-        GlStateManager._glUseProgram(0);
+    public static void debugFallback(String renderContext, String reason, int renderPartMask, int packedLight, ResourceLocation textureLocation) {
+        debugFallback(renderContext, reason, -1, renderPartMask, packedLight, textureLocation, null);
+    }
 
-        com.mojang.blaze3d.vertex.BufferUploader.invalidate();
-        GlStateManager._glBindVertexArray(0);
+    private static void debugSuccess(String renderContext, int drawCount, int renderPartMask, int packedLight, ResourceLocation textureLocation, GlStateSnapshot snapshot) {
+        if (!DEBUG) return;
+        int count = ++debugSuccessCount;
+        if (count > 5 && count % DEBUG_SAMPLE_INTERVAL != 0) return;
+        YesSteveModel.LOGGER.info("[YSM GPU] render ok context={} drawCount={} partMask={} packedLight={} texture={} stateBefore={}",
+                renderContext, drawCount, renderPartMask, packedLight, textureLocation, snapshot);
+    }
 
-        mc.gameRenderer.lightTexture().turnOffLightLayer();
-
-        return true;
+    private static void debugFallback(String renderContext, String reason, int drawCount, int renderPartMask, int packedLight, ResourceLocation textureLocation, GlStateSnapshot snapshot) {
+        if (!DEBUG) return;
+        int count = ++debugFallbackCount;
+        if (count > 12 && count % DEBUG_SAMPLE_INTERVAL != 0) return;
+        YesSteveModel.LOGGER.info("[YSM GPU] fallback context={} reason={} drawCount={} partMask={} packedLight={} texture={} stateBefore={}",
+                renderContext, reason, drawCount, renderPartMask, packedLight, textureLocation, snapshot);
     }
 
     private static void refreshLights() {
@@ -258,6 +329,165 @@ public final class GpuRenderPath {
             }
 
             localMat.translate(-bone.pivotX / 16.0f, -bone.pivotY / 16.0f, -bone.pivotZ / 16.0f);
+        }
+    }
+
+    private static final class GlStateSnapshot {
+        private final int program;
+        private final int vao;
+        private final int arrayBuffer;
+        private final int elementArrayBuffer;
+        private final int shaderStorageBuffer;
+        private final int shaderStorageBase0;
+        private final int activeTexture;
+        private final int texture0;
+        private final int texture1;
+        private final int texture2;
+        private final boolean blend;
+        private final boolean depthTest;
+        private final boolean cull;
+        private final boolean depthMask;
+        private final int frontFace;
+        private final int blendSrcRgb;
+        private final int blendDstRgb;
+        private final int blendSrcAlpha;
+        private final int blendDstAlpha;
+        private final int blendEquationRgb;
+        private final int blendEquationAlpha;
+
+        private GlStateSnapshot(
+                int program,
+                int vao,
+                int arrayBuffer,
+                int elementArrayBuffer,
+                int shaderStorageBuffer,
+                int shaderStorageBase0,
+                int activeTexture,
+                int texture0,
+                int texture1,
+                int texture2,
+                boolean blend,
+                boolean depthTest,
+                boolean cull,
+                boolean depthMask,
+                int frontFace,
+                int blendSrcRgb,
+                int blendDstRgb,
+                int blendSrcAlpha,
+                int blendDstAlpha,
+                int blendEquationRgb,
+                int blendEquationAlpha
+        ) {
+            this.program = program;
+            this.vao = vao;
+            this.arrayBuffer = arrayBuffer;
+            this.elementArrayBuffer = elementArrayBuffer;
+            this.shaderStorageBuffer = shaderStorageBuffer;
+            this.shaderStorageBase0 = shaderStorageBase0;
+            this.activeTexture = activeTexture;
+            this.texture0 = texture0;
+            this.texture1 = texture1;
+            this.texture2 = texture2;
+            this.blend = blend;
+            this.depthTest = depthTest;
+            this.cull = cull;
+            this.depthMask = depthMask;
+            this.frontFace = frontFace;
+            this.blendSrcRgb = blendSrcRgb;
+            this.blendDstRgb = blendDstRgb;
+            this.blendSrcAlpha = blendSrcAlpha;
+            this.blendDstAlpha = blendDstAlpha;
+            this.blendEquationRgb = blendEquationRgb;
+            this.blendEquationAlpha = blendEquationAlpha;
+        }
+
+        static GlStateSnapshot capture() {
+            int activeTexture = GL11.glGetInteger(GL13.GL_ACTIVE_TEXTURE);
+            int texture0 = textureBinding(GL13.GL_TEXTURE0);
+            int texture1 = textureBinding(GL13.GL_TEXTURE0 + 1);
+            int texture2 = textureBinding(GL13.GL_TEXTURE0 + 2);
+            GlStateManager._activeTexture(activeTexture);
+
+            return new GlStateSnapshot(
+                    GL11.glGetInteger(GL20.GL_CURRENT_PROGRAM),
+                    GL11.glGetInteger(GL30.GL_VERTEX_ARRAY_BINDING),
+                    GL11.glGetInteger(GL15.GL_ARRAY_BUFFER_BINDING),
+                    GL11.glGetInteger(GL15.GL_ELEMENT_ARRAY_BUFFER_BINDING),
+                    GL11.glGetInteger(ARBShaderStorageBufferObject.GL_SHADER_STORAGE_BUFFER_BINDING),
+                    GL30.glGetIntegeri(ARBShaderStorageBufferObject.GL_SHADER_STORAGE_BUFFER_BINDING, BoneSkinShader.ssbo),
+                    activeTexture,
+                    texture0,
+                    texture1,
+                    texture2,
+                    GL11.glIsEnabled(GL11.GL_BLEND),
+                    GL11.glIsEnabled(GL11.GL_DEPTH_TEST),
+                    GL11.glIsEnabled(GL11.GL_CULL_FACE),
+                    GL11.glGetBoolean(GL11.GL_DEPTH_WRITEMASK),
+                    GL11.glGetInteger(GL11.GL_FRONT_FACE),
+                    GL11.glGetInteger(GL14.GL_BLEND_SRC_RGB),
+                    GL11.glGetInteger(GL14.GL_BLEND_DST_RGB),
+                    GL11.glGetInteger(GL14.GL_BLEND_SRC_ALPHA),
+                    GL11.glGetInteger(GL14.GL_BLEND_DST_ALPHA),
+                    GL11.glGetInteger(GL20.GL_BLEND_EQUATION_RGB),
+                    GL11.glGetInteger(GL20.GL_BLEND_EQUATION_ALPHA)
+            );
+        }
+
+        private static int textureBinding(int textureUnit) {
+            GlStateManager._activeTexture(textureUnit);
+            return GL11.glGetInteger(GL11.GL_TEXTURE_BINDING_2D);
+        }
+
+        void restore() {
+            restoreFlag(blend, RenderSystem::enableBlend, RenderSystem::disableBlend);
+            restoreFlag(depthTest, RenderSystem::enableDepthTest, RenderSystem::disableDepthTest);
+            restoreFlag(cull, RenderSystem::enableCull, RenderSystem::disableCull);
+            GlStateManager._depthMask(depthMask);
+            GL11.glFrontFace(frontFace);
+            GL20.glBlendEquationSeparate(blendEquationRgb, blendEquationAlpha);
+            GlStateManager._blendFuncSeparate(blendSrcRgb, blendDstRgb, blendSrcAlpha, blendDstAlpha);
+
+            GlStateManager._glUseProgram(program);
+            GlStateManager._glBindVertexArray(vao);
+            GlStateManager._glBindBuffer(GL15.GL_ARRAY_BUFFER, arrayBuffer);
+            GlStateManager._glBindBuffer(GL15.GL_ELEMENT_ARRAY_BUFFER, elementArrayBuffer);
+            GL30.glBindBufferBase(ARBShaderStorageBufferObject.GL_SHADER_STORAGE_BUFFER, BoneSkinShader.ssbo, shaderStorageBase0);
+            GlStateManager._glBindBuffer(ARBShaderStorageBufferObject.GL_SHADER_STORAGE_BUFFER, shaderStorageBuffer);
+
+            GlStateManager._activeTexture(GL13.GL_TEXTURE0);
+            GlStateManager._bindTexture(texture0);
+            GlStateManager._activeTexture(GL13.GL_TEXTURE0 + 1);
+            GlStateManager._bindTexture(texture1);
+            GlStateManager._activeTexture(GL13.GL_TEXTURE0 + 2);
+            GlStateManager._bindTexture(texture2);
+            GlStateManager._activeTexture(activeTexture);
+        }
+
+        private static void restoreFlag(boolean enabled, Runnable enable, Runnable disable) {
+            if (enabled) {
+                enable.run();
+            } else {
+                disable.run();
+            }
+        }
+
+        @Override
+        public String toString() {
+            return "program=" + program
+                    + ",vao=" + vao
+                    + ",arrayBuffer=" + arrayBuffer
+                    + ",elementArrayBuffer=" + elementArrayBuffer
+                    + ",ssbo=" + shaderStorageBuffer
+                    + ",ssbo0=" + shaderStorageBase0
+                    + ",activeTexture=0x" + Integer.toHexString(activeTexture)
+                    + ",tex0=" + texture0
+                    + ",tex1=" + texture1
+                    + ",tex2=" + texture2
+                    + ",blend=" + blend
+                    + ",depthTest=" + depthTest
+                    + ",cull=" + cull
+                    + ",depthMask=" + depthMask
+                    + ",frontFace=0x" + Integer.toHexString(frontFace);
         }
     }
 }

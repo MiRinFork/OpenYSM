@@ -6,7 +6,6 @@ import com.elfmcys.yesstevemodel.NativeLibLoader;
 import com.elfmcys.yesstevemodel.client.renderer.ModelPreviewRenderer;
 import com.elfmcys.yesstevemodel.config.GeneralConfig;
 import com.elfmcys.yesstevemodel.geckolib3.geo.render.built.GeoModel;
-import com.elfmcys.yesstevemodel.util.log.ChatLogger;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
@@ -37,22 +36,18 @@ public class NativeModelRenderer {
         OculusCompat.updatePBRState();
         RenderSystem.getProjectionMatrix().mul(RenderSystem.getModelViewMatrix(), projectionModelViewMatrix);
         boolean isPreview = ModelPreviewRenderer.isPreview() || ModelPreviewRenderer.isExtraPlayer();
+        String gpuRenderContext = ModelPreviewRenderer.isExtraPlayer() ? "paperdoll" : (ModelPreviewRenderer.isPreview() ? "preview" : "world");
 
         if (textureLocation != null && NativeLibLoader.isLoaded() && !GeneralConfig.USE_COMPATIBILITY_RENDERER.get() && GeneralConfig.USE_GPU_RENDERER.get()) {
 
-            if(!GpuCapability.isAvailable())
-            {
-                ChatLogger.INSTANCE.logFormatted("Disabled GPU renderer for: " + GpuCapability.getReason());
-                GeneralConfig.USE_GPU_RENDERER.set(false);
-                return;
-            }
-
-            if (OculusCompat.isShaderPackInUse() && !isPreview) {
+            if (!GpuCapability.isAvailable()) {
+                GpuRenderPath.debugFallback(gpuRenderContext, GpuCapability.getReason(), renderPartMask, packedLight, textureLocation);
+            } else if (OculusCompat.isShaderPackInUse() && !isPreview) {
                 if (IrisRenderPath.tryRender(model, pose, boneParams, renderPartMask, packedLight, packedOverlay, red, green, blue, alpha, textureLocation)) {
                     return;
                 }
             } else {
-                if (GpuRenderPath.tryRender(model, pose, boneParams, stateBuffer, renderPartMask, packedLight, packedOverlay, red, green, blue, alpha, textureLocation)) {
+                if (GpuRenderPath.tryRender(model, pose, boneParams, stateBuffer, renderPartMask, packedLight, packedOverlay, red, green, blue, alpha, textureLocation, gpuRenderContext)) {
                     return;
                 }
             }
