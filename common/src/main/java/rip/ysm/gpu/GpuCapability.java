@@ -26,16 +26,16 @@ public final class GpuCapability {
         checked = true;
 
         if (System.getProperty("OYSM_DISABLE_GPU") != null) {
-            reason = "gpu renderer has been disabled";
+            unavailable("gpu renderer has been disabled");
             return;
         }
         if (!NativeLibLoader.isLoaded()) {
-            reason = "native ysm-core not loaded";
+            unavailable("native ysm-core not loaded");
             return;
         }
         String osName = System.getProperty("os.name", "").toLowerCase();
         if (osName.contains("mac") || osName.contains("darwin")) {
-            reason = "macOS GL is capped at 4.1 and lacks GL_ARB_shader_storage_buffer_object";
+            unavailable("macOS GL is capped at 4.1 and lacks GL_ARB_shader_storage_buffer_object");
             return;
         }
 
@@ -52,52 +52,51 @@ public final class GpuCapability {
             glVendor = GL11.glGetString(GL11.GL_VENDOR);
             glslVersion = GL11.glGetString(0x8B8C);
         } catch (Throwable t) {
-            reason = "GL capabilities not available: " + t.getMessage();
+            unavailable("GL capabilities not available: " + t.getMessage());
             return;
         }
 
         if (glVersion == null) {
-            reason = "GL version not available";
+            unavailable("GL version not available");
             return;
         }
 
-        System.out.println("OpenGL version: " + glVersion);
-        System.out.println("OpenGL renderer version: " + glRenderer);
-        System.out.println("OpenGL vendor: " + glVendor);
-        System.out.println("OpenGL glsl version: " + glslVersion);
+        if (glVersion.regionMatches(true, 0, "OpenGL ES", 0, "OpenGL ES".length())) {
+            unavailable("OpenGL ES context is not supported by GPU renderer; desktop OpenGL 4.3 or ARB shader storage buffer support is required (got " + glVersion + ")");
+            return;
+        }
 
         if (!caps.OpenGL30) {
-            reason = "OpenGL 3.0 not supported (got " + glVersion + ")";
+            unavailable("OpenGL 3.0 not supported (got " + glVersion + ")");
             return;
         }
 
         boolean hasSsbo = caps.OpenGL43 || caps.GL_ARB_shader_storage_buffer_object;
         boolean hasIfaceQuery = caps.OpenGL43 || caps.GL_ARB_program_interface_query;
         boolean hasLayoutBinding = caps.OpenGL42 || caps.GL_ARB_shading_language_420pack;
-        boolean hasExplicitAttrib = caps.OpenGL33 || caps.GL_ARB_explicit_attrib_location;
         boolean hasPackedNormal = caps.OpenGL33 || caps.GL_ARB_vertex_type_2_10_10_10_rev;
         if (!hasSsbo) {
-            reason = "SSBO not supported, GL_VERSION=" + glVersion;
+            unavailable("SSBO not supported, GL_VERSION=" + glVersion);
             return;
         }
         if (!hasIfaceQuery) {
-            reason = "GL_ARB_program_interface_query not supported; GL_VERSION=" + glVersion;
+            unavailable("GL_ARB_program_interface_query not supported; GL_VERSION=" + glVersion);
             return;
         }
         if (!hasLayoutBinding) {
-            reason = "GL_ARB_shading_language_420pack not supported; GL_VERSION=" + glVersion;
-            return;
-        }
-        if (!hasExplicitAttrib) {
-            reason = "GL_ARB_explicit_attrib_location not supported; GL_VERSION=" + glVersion;
+            unavailable("GL_ARB_shading_language_420pack not supported; GL_VERSION=" + glVersion);
             return;
         }
         if (!hasPackedNormal) {
-            reason = "GL_ARB_vertex_type_2_10_10_10_rev not supported; GL_VERSION=" + glVersion;
+            unavailable("GL_ARB_vertex_type_2_10_10_10_rev not supported; GL_VERSION=" + glVersion);
             return;
         }
 
         available = true;
         reason = "ok (GL " + glVersion + ", " + glRenderer + ")";
+    }
+
+    private static void unavailable(String unavailableReason) {
+        reason = unavailableReason;
     }
 }

@@ -1,13 +1,12 @@
-#version 430 core
+#version 150 core
 #extension GL_ARB_shader_storage_buffer_object : require
 #extension GL_ARB_shading_language_420pack : require
-#extension GL_ARB_explicit_attrib_location : require
 
-layout(location = 0) in vec3 a_position;
-layout(location = 1) in vec2 a_uv;
-layout(location = 2) in vec4 a_normal;
-layout(location = 3) in uint a_boneId;
-layout(location = 4) in float a_cullable;
+in vec3 a_position;
+in vec2 a_uv;
+in vec4 a_normal;
+in uint a_boneId;
+in float a_cullable;
 
 
 out float v_cullable;

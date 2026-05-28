@@ -3,8 +3,9 @@ package rip.ysm.gpu;
 import com.elfmcys.yesstevemodel.YesSteveModel;
 import com.elfmcys.yesstevemodel.util.log.ChatLogger;
 import com.mojang.blaze3d.systems.RenderSystem;
+import org.lwjgl.opengl.ARBProgramInterfaceQuery;
+import org.lwjgl.opengl.ARBShaderStorageBufferObject;
 import org.lwjgl.opengl.GL20;
-import org.lwjgl.opengl.GL43;
 
 public final class BoneSkinShader {
     public static final int ssbo = 0;
@@ -37,9 +38,9 @@ public final class BoneSkinShader {
                 GL20.glBindAttribLocation(p, 4, "a_cullable");
             }, vs, fs);
 
-            int ssboBlock = GL43.glGetProgramResourceIndex(prog, GL43.GL_SHADER_STORAGE_BLOCK, "BoneBlock");
-            if (ssboBlock != GL43.GL_INVALID_INDEX) {
-                GL43.glShaderStorageBlockBinding(prog, ssboBlock, ssbo);
+            int ssboBlock = ARBProgramInterfaceQuery.glGetProgramResourceIndex(prog, ARBProgramInterfaceQuery.GL_SHADER_STORAGE_BLOCK, "BoneBlock");
+            if (ssboBlock != -1) {
+                ARBShaderStorageBufferObject.glShaderStorageBlockBinding(prog, ssboBlock, ssbo);
             }
 
             locProj = GL20.glGetUniformLocation(prog, "u_proj");
